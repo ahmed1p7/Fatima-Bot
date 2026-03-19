@@ -180,7 +180,7 @@ export default {
 
       if (!targetClan) return sock.sendMessage(from, { text: '❌ الكلان غير موجود!' });
 
-      const result = challengeClan(from, targetClan.id, sender);
+      const result = await challengeClan(from, targetClan.id, sender, sock);
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
       return sock.sendMessage(from, { text: `⚔️ تم إرسال تحدي!
@@ -217,7 +217,7 @@ export default {
       const challengeId = args[0];
       if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!' });
 
-      const result = acceptChallenge(challengeId, sender);
+      const result = await acceptChallenge(challengeId, sender, sock);
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
       // إرسال إعلان للحرب
@@ -245,7 +245,7 @@ export default {
       const challengeId = args[0];
       if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!' });
 
-      const rejected = rejectChallenge(challengeId);
+      const rejected = await rejectChallenge(challengeId, sock);
       return sock.sendMessage(from, { text: rejected ? '✅ تم رفض التحدي!' : '❌ التحدي غير موجود!' });
     }
 
