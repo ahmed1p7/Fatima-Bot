@@ -1,0 +1,26 @@
+{
+  "name": "fatima-bot",
+  "version": "10.0.0",
+  "description": "🌙 فاطمة بوت - بوت واتساب احترافي بالعربية مع نظام RPG والكلانات والسوق",
+  "main": "index.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs"
+  },
+  "keywords": ["whatsapp-bot", "baileys", "fatima-bot", "arabic-bot", "rpg", "clans"],
+  "author": "zaza",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "pino": "^8.16.2",
+    "qrcode-terminal": "^0.12.0",
+    "node-fetch": "^3.3.2",
+    "z-ai-web-dev-sdk": "^0.0.17",
+    "wa-sticker-formatter": "^4.3.2",
+    "sharp": "^0.32.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

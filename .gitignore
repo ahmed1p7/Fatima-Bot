@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+package-lock.json
+bun.lock
+yarn.lock
+
+# Session & Auth
+session/
+
+# Environment
+.env
+.env.*
+
+# Database (keep structure, ignore data)
+database/*.json
+
+# Skills & Downloads
+skills/
+download/
+upload/
+
+# Temp files
+.accesslog
+.config
+.stats
+*.zip
+*.log
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old folder
+Fatima-Bot/
