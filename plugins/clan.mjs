@@ -48,7 +48,7 @@ export default {
 
       return sock.sendMessage(from, { text: `╭═══════ 🏰 تفعيل الكلان 🏰 ═══════╮
    
-   ✅ تم إنشاء كلان "${clanName}"
+   ✅ تم إنشاء كلان "${clanName}" [${result.clan.clanTag}]
    
    👑 القائد: ${pushName}
    👥 الأعضاء: 1
@@ -70,10 +70,13 @@ export default {
 
       // الحصول على اسم القائد
       const leaderName = data.players?.[clan.leader]?.name || 'غير معروف';
+      
+      // الحصول على clanTag
+      const clanTag = clan.clanTag || '####';
 
       return sock.sendMessage(from, { text: `╭═══════ 🏰 كلان الجروب 🏰 ═══════╮
    
-   🛡️ الاسم: ${clan.name}
+   🛡️ الاسم: ${clan.name} [${clanTag}]
    ⭐ المستوى: ${clan.level}
    📊 التقدم: [${progress}] ${clan.xp}/${xpNeeded}
    
