@@ -1,23 +1,22 @@
-```javascript
+```
 # Compiled and build artifacts
 *.pyc
 __pycache__/
 *.o
 *.obj
-*.class
-*.exe
-*.dll
-*.so
-*.a
-*.out
+dist/
+build/
+target/
 
 # Dependencies
-node_modules/
-venv/
 .venv/
-.env
-.env.local
-*.env.*
+venv/
+node_modules/
+.pip-tools/
+.tox/
+.coverage
+coverage/
+htmlcov/
 
 # Logs and temp files
 *.log
@@ -25,26 +24,26 @@ venv/
 *.swp
 *.swo
 
+# Environment
+.env
+.env.local
+.env.*
+
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Build directories
-dist/
-build/
-target/
-.gradle/
+# OS
+.DS_Store
+Thumbs.db
 
-# Python specific
-*.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
-*.so
-.coverage
+# Testing
+.pytest_cache/
+.mypy_cache/
+.nyc_output/
 coverage/
-htmlcov/
 
 # Compressed files
 *.zip
