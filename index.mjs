@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🌙 فاطمة بوت - النسخة المتطورة v9.0
+// 🌙 فاطمة بوت - النسخة المتطورة v10.0 مع القوائم التفاعلية
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay, getContentType } from '@whiskeysockets/baileys';
@@ -16,6 +16,78 @@ const __dirname = path.dirname(__filename);
 
 let sock = null;
 let plugins = [];
+
+// 1. تعريف النصوص المزخرفة للقوائم
+const menus = {
+    rpg: `╭══ 🎮 نظام RPG ══╮
+║ .تسجيل <صنف>  │ إنشاء شخصية جديدة
+║ .ملف              │ ملفك الشخصي
+║ .قتال             │ قتال وحوش 🐲
+║ .تحدي @شخص      │ تحدي لاعب PvP
+║ .متجر             │ شراء معدات
+╰═════════════════════════════════❖`,
+
+    clans: `╭══ ⚔️ نظام الكلانات ══╮
+║ .إنشاء_كلان <اسم>│ تأسيس كلان جديد
+║ .دعوة             │ دعوة أعضاء
+║ .حرب <اسم_كلان> │ بدء تحدي
+║ .قبول_التحدي      │ قبول التحدي
+║ .رفض_التحدي       │ رفض التحدي
+╰═════════════════════════════════❖`,
+
+    ai: `╭══ 🤖 الذكاء الاصطناعي ══╮
+║ تفعيل_ذكاء       │ تفعيل فاطمة
+║ إغلاق_ذكاء       │ إيقاف فاطمة
+║ .سؤال <نص>      │ اسأل فاطمة
+║ .ترجمة <نص>      │ ترجمة نصوص
+║ حالة_ذكاء        │ مستوى فاطمة
+╰═════════════════════════════════❖`,
+
+    group: `╭══ 👥 المجموعات ══╮
+║ .الجميع <نص>    │ منشن للكل 📢
+║ .طرد @شخص       │ طرد عضو
+║ .ترقية @شخص     │ ترقية لمشرف
+║ .قفل             │ قفل المجموعة
+╰═════════════════════════════════❖`
+};
+
+// دالة إرسال القائمة الرئيسية التفاعلية
+async function sendMainMenu(remoteJid) {
+    const db = getDatabase();
+    const uptime = "0d 0h 0m"; 
+    const commandsCount = "175+";
+
+    const listMessage = {
+        text: `أهلاً بك! أنا بوت *فاطومة* 🤖\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}`,
+        footer: "بواسطة: zaza | نسخة 10.0",
+        title: "🌙 فَــاطِــمَــة بَــوت",
+        buttonText: "فتح الأقسام 📂",
+        sections: [
+            {
+                title: "🎮 الألعاب والأنظمة",
+                rows: [
+                    { title: "نظام RPG", rowId: ".menu_rpg", description: "قتال، صيد، وتطوير أسلحة" },
+                    { title: "الكلانات والحروب", rowId: ".menu_clans", description: "إنشاء كلان وتحديات" }
+                ]
+            },
+            {
+                title: "🤖 ذكاء وأدوات",
+                rows: [
+                    { title: "الذكاء الاصطناعي", rowId: ".menu_ai", description: "سؤال، ترجمة، وتفعيل فاطمة" }
+                ]
+            },
+            {
+                title: "👥 الإدارة",
+                rows: [
+                    { title: "إدارة المجموعات", rowId: ".menu_group", description: "طرد، ترقية، وقفل" }
+                ]
+            }
+        ],
+        viewOnce: true
+    };
+
+    await sock.sendMessage(remoteJid, listMessage);
+}
 
 async function start() {
   const { version } = await fetchLatestBaileysVersion();
@@ -62,6 +134,26 @@ async function start() {
         const isOwner = ['393271166550'].some(o => sender?.includes(o));
         const msgType = getContentType(msg.message);
         
+        // معالجة ردود القائمة التفاعلية (Interactive Response)
+        if (msgType === 'interactiveResponseMessage') {
+          const paramsJson = msg.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
+          if (paramsJson) {
+            const selectionId = JSON.parse(paramsJson).id;
+            
+            // الرد بناءً على الاختيار
+            if (selectionId === '.menu_rpg') {
+              await sock.sendMessage(from, { text: menus.rpg });
+            } else if (selectionId === '.menu_clans') {
+              await sock.sendMessage(from, { text: menus.clans });
+            } else if (selectionId === '.menu_ai') {
+              await sock.sendMessage(from, { text: menus.ai });
+            } else if (selectionId === '.menu_group') {
+              await sock.sendMessage(from, { text: menus.group });
+            }
+          }
+          continue; // إنهاء المعالجة هنا لعدم تنفيذ كود آخر
+        }
+        
         // الحصول على معلومات المجموعة
         let isGroupAdmin = false;
         let groupMetadata = null;
@@ -94,6 +186,12 @@ async function start() {
 
         const prefix = db.settings?.prefix || '.';
         const isCommand = body.startsWith(prefix);
+        
+        // أمر عرض المينو الرئيسي
+        if (body === '.menu') {
+          await sendMainMenu(from);
+          continue;
+        }
         
         if (isCommand) {
           const fullCmd = body.slice(prefix.length).trim();
