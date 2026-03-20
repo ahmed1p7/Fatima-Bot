@@ -79,6 +79,19 @@ async function start() {
         else if (msgType === 'videoMessage') body = msg.message.videoMessage?.caption || '';
         if (!body) continue;
 
+        // 🤖 التعلم من الرسائل للذكاء الاصطناعي
+        if (isGroup) {
+          const { learnFromMessage, generateResponse } = await import('./lib/ai.mjs');
+          learnFromMessage(sender, pushName, body, from);
+          
+          // توليد رد ذكي من فاطمة
+          const aiResponse = await generateResponse({ body }, from, sender, pushName);
+          if (aiResponse) {
+            await delay(1000 + Math.random() * 2000); // تأخير طبيعي
+            await sock.sendMessage(from, { text: aiResponse });
+          }
+        }
+
         const prefix = db.settings?.prefix || '.';
         const isCommand = body.startsWith(prefix);
         
