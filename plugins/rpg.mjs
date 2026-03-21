@@ -4,6 +4,8 @@
 
 import { getRpgData, saveDatabase, createNewPlayer, ensurePlayer } from '../lib/database.mjs';
 import { RPG, levelUp, healthBar, fightMonster, pvpBattle, generateWeapon, generateArmor, upgradeWeapon, fish as doFish, mine as doMine, getUpgradeCost, getSellPrice, xpForLevel } from '../lib/rpg.mjs';
+import { allocateAbilityPoint, unlockSkill, useActiveSkill, formatSkillTree, formatPlayerSkills, SKILL_TREES } from '../lib/skills.mjs';
+import { updateQuestProgress } from '../lib/quests.mjs';
 
 // دالة للحصول على لاعب مع التأكد من وجود جميع الحقول
 function getPlayer(data, sender) {
@@ -15,7 +17,7 @@ function getPlayer(data, sender) {
 
 export default {
   name: 'RPG',
-  commands: ['تسجيل', 'register', 'ملف', 'profile', 'قتال', 'fight', 'تحدي', 'challenge', 'علاج', 'heal', 'يومي', 'daily', 'عمل', 'work', 'صيد', 'fish', 'تعدين', 'mine', 'صندوق', 'box', 'تطوير', 'upgrade', 'بيع', 'sell', 'رتبة', 'rank', 'مخزون', 'inventory'],
+  commands: ['تسجيل', 'register', 'ملف', 'profile', 'قتال', 'fight', 'تحدي', 'challenge', 'علاج', 'heal', 'يومي', 'daily', 'عمل', 'work', 'صيد', 'fish', 'تعدين', 'mine', 'صندوق', 'box', 'تطوير', 'upgrade', 'بيع', 'sell', 'رتبة', 'rank', 'مخزون', 'inventory', 'نقاط', 'points', 'مهارة', 'skill', 'مهاراتي', 'myskills', 'شجرة', 'tree'],
 
   async execute(sock, msg, ctx) {
     const { from, sender, pushName, command, args, text, prefix, quoted } = ctx;
@@ -440,6 +442,102 @@ export default {
       }
 
       return sock.sendMessage(from, { text: msg });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // نقاط القدرة
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['نقاط', 'points'].includes(command)) {
+      const p = getPlayer(data, sender);
+      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const stat = args[0]?.toLowerCase();
+      const amount = parseInt(args[1]) || 1;
+
+      if (!stat) {
+        return sock.sendMessage(from, {
+          text: `⚡ نقاط القدرة: ${p.abilityPoints || 0}
+
+📊 إحصائياتك الموزعة:
+❤️ HP: +${p.allocatedStats?.hp || 0} (${(p.allocatedStats?.hp || 0) * 10} HP)
+⚔️ ATK: +${p.allocatedStats?.atk || 0} (${(p.allocatedStats?.atk || 0) * 2} ATK)
+🛡️ DEF: +${p.allocatedStats?.def || 0} (${(p.allocatedStats?.def || 0) * 2} DEF)
+✨ MAG: +${p.allocatedStats?.mag || 0} (${(p.allocatedStats?.mag || 0) * 3} MAG)
+
+💡 ${prefix}نقاط <hp|atk|def|mag> [العدد]`
+        });
+      }
+
+      const result = allocateAbilityPoint(p, stat, amount);
+      saveDatabase();
+
+      return sock.sendMessage(from, { text: result.message });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // شجرة المهارات
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['شجرة', 'tree'].includes(command)) {
+      const p = getPlayer(data, sender);
+      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const display = formatSkillTree(p);
+      return sock.sendMessage(from, { text: display });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // مهاراتي
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['مهاراتي', 'myskills'].includes(command)) {
+      const p = getPlayer(data, sender);
+      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const display = formatPlayerSkills(p);
+      return sock.sendMessage(from, { text: display });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // فتح/استخدام مهارة
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['مهارة', 'skill'].includes(command)) {
+      const p = getPlayer(data, sender);
+      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const skillName = args.join(' ');
+
+      if (!skillName) {
+        return sock.sendMessage(from, {
+          text: `⚡ نقاط المهارة: ${p.skillPoints || 0}
+
+💡 ${prefix}مهارة <اسم_المهارة> - لفتح مهارة جديدة
+💡 ${prefix}شجرة - لعرض شجرة المهارات المتاحة`
+        });
+      }
+
+      // البحث عن المهارة
+      let skillId = null;
+      const classTree = SKILL_TREES[p.class];
+      if (classTree) {
+        for (const type of ['passive', 'active']) {
+          const found = classTree[type]?.find(s => 
+            s.name === skillName || s.id === skillName || 
+            s.name.includes(skillName)
+          );
+          if (found) {
+            skillId = found.id;
+            break;
+          }
+        }
+      }
+
+      if (!skillId) {
+        return sock.sendMessage(from, { text: '❌ مهارة غير موجودة!' });
+      }
+
+      const result = unlockSkill(p, skillId);
+      saveDatabase();
+
+      return sock.sendMessage(from, { text: result.message });
     }
   }
 };
