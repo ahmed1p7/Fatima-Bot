@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📜 القائمة الرئيسية التفاعلية - فاطمة بوت v11.0
+// 📜 القائمة الرئيسية - فاطمة بوت v11.0
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getDatabase } from '../lib/database.mjs';
@@ -155,66 +155,25 @@ const menus = {
 ╰═══════════════════════════════════════════════❖`
 };
 
-export default {
-  name: 'Menu',
-  commands: ['menu', 'القائمة', 'أوامر', 'help', 'اوامر', 'مساعدة'],
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔢 خريطة الأرقام للقوائم
+// ═══════════════════════════════════════════════════════════════════════════════
 
-  async execute(sock, msg, ctx) {
-    const { from, prefix } = ctx;
-    const db = getDatabase();
-    const p = db.settings?.prefix || prefix || '.';
-    const up = process.uptime();
-    const uptime = `${Math.floor(up/86400)}d ${Math.floor((up%86400)/3600)}h ${Math.floor((up%3600)/60)}m`;
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 📋 إرسال القائمة الرئيسية التفاعلية
-    // ═══════════════════════════════════════════════════════════════════════════
-    const listMessage = {
-      text: `أهلاً بك! أنا بوت *فاطمة* 🌙\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: 200+`,
-      footer: 'بواسطة: zaza | نسخة 11.0',
-      title: '🌙 فَــاطِــمَــة بَــوت v11.0',
-      buttonText: 'فتح الأقسام 📂',
-      sections: [
-        {
-          title: '🎮 الألعاب والأنظمة',
-          rows: [
-            { title: 'نظام RPG', rowId: 'rpg_menu', description: 'قتال، صيد، تعدين، وصناديق' },
-            { title: 'المهارات والقدرات', rowId: 'skills_menu', description: 'شجرة مهارات ونقاط قدرة' },
-            { title: 'نظام القرية', rowId: 'village_menu', description: 'بناء قرية، وحدات، وهجمات' },
-            { title: 'نظام الزعماء', rowId: 'boss_menu', description: 'قتال جماعي ضد زعماء أقوياء' },
-            { title: 'المهام والإنجازات', rowId: 'quests_menu', description: 'مهام يومية وأسبوعية' }
-          ]
-        },
-        {
-          title: '🏰 الكلانات والحروب',
-          rows: [
-            { title: 'نظام الكلانات', rowId: 'clans_menu', description: 'إنشاء كلان وتبرعات' },
-            { title: 'حروب الكلانات', rowId: 'war_menu', description: 'تحديات ومعارك كلانية' },
-            { title: 'السوق المفتوح', rowId: 'market_menu', description: 'بيع وشراء بين اللاعبين' }
-          ]
-        },
-        {
-          title: '🤖 ذكاء وأدوات',
-          rows: [
-            { title: 'الذكاء الاصطناعي', rowId: 'ai_menu', description: 'سؤال، ترجمة، وشرح' },
-            { title: 'الملصقات', rowId: 'sticker_menu', description: 'إنشاء وتحويل الملصقات' },
-            { title: 'الأدوات', rowId: 'tools_menu', description: 'أدوات متنوعة' },
-            { title: 'التحميلات', rowId: 'download_menu', description: 'تحميل فيديوهات وأغاني' }
-          ]
-        },
-        {
-          title: '👥 الإدارة',
-          rows: [
-            { title: 'إدارة المجموعات', rowId: 'group_menu', description: 'طرد، ترقية، وإعدادات' },
-            { title: 'أوامر المالك', rowId: 'owner_menu', description: 'إدارة البوت (للمالك فقط)' }
-          ]
-        }
-      ],
-      viewOnce: true
-    };
-
-    await sock.sendMessage(from, listMessage);
-  }
+const menuNumbers = {
+  '1': 'rpg',
+  '2': 'skills',
+  '3': 'village',
+  '4': 'boss',
+  '5': 'quests',
+  '6': 'clans',
+  '7': 'war',
+  '8': 'market',
+  '9': 'ai',
+  '10': 'sticker',
+  '11': 'tools',
+  '12': 'download',
+  '13': 'group',
+  '14': 'owner'
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -222,3 +181,59 @@ export default {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { menus };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📜 أمر القائمة الرئيسية
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export default {
+  name: 'Menu',
+  commands: ['menu', 'القائمة', 'أوامر', 'help', 'اوامر', 'مساعدة'],
+
+  async execute(sock, msg, ctx) {
+    const { from, prefix, args } = ctx;
+    const db = getDatabase();
+    const p = db.settings?.prefix || prefix || '.';
+    const up = process.uptime();
+    const uptime = `${Math.floor(up/86400)}d ${Math.floor((up%86400)/3600)}h ${Math.floor((up%3600)/60)}m`;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 🔍 إذا كتب المستخدم .menu وبعده اسم القسم أو رقم (مثلاً: .menu rpg أو .menu 1)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const selectedSection = args[0]?.toLowerCase();
+
+    if (selectedSection) {
+      // التحقق من الرقم أولاً
+      const menuKey = menuNumbers[selectedSection] || selectedSection;
+      
+      if (menus[menuKey]) {
+        const sectionText = menus[menuKey](p);
+        return await sock.sendMessage(from, { text: sectionText });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 📋 القائمة الرئيسية في حال لم يختر قسماً
+    // ═══════════════════════════════════════════════════════════════════════════
+    let mainText = `🌙 *فَــاطِــمَــة بَــوت v11.0* \n`;
+    mainText += `══════════════════\n`;
+    mainText += `⏱️ النشاط: ${uptime}\n`;
+    mainText += `📊 الأوامر: +200\n\n`;
+    mainText += `*تصفح الأقسام بكتابة ${p}menu ثم اسم القسم أو رقمه:*\n\n`;
+    mainText += `🎮 *الألعاب:*\n`;
+    mainText += `   \`1\` rpg | \`2\` skills | \`3\` village | \`4\` boss | \`5\` quests\n\n`;
+    mainText += `🏰 *الكلانات:*\n`;
+    mainText += `   \`6\` clans | \`7\` war | \`8\` market\n\n`;
+    mainText += `🤖 *ذكاء وأدوات:*\n`;
+    mainText += `   \`9\` ai | \`10\` sticker | \`11\` tools | \`12\` download\n\n`;
+    mainText += `👥 *الإدارة:*\n`;
+    mainText += `   \`13\` group | \`14\` owner\n\n`;
+    mainText += `*مثال:* \n`;
+    mainText += `  \`${p}menu rpg\` أو \`${p}menu 1\``;
+
+    await sock.sendMessage(from, { 
+      text: mainText,
+      footer: 'بواسطة: zaza | نسخة 11.0'
+    });
+  }
+};
