@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🌙 فاطمة بوت - النسخة المتطورة v10.0 مع القوائم التفاعلية
+// 🌙 فاطمة بوت - النسخة المتطورة v11.0 مع الأنظمة الجديدة
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay, getContentType } from '@whiskeysockets/baileys';
@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { loadPlugins, execCmd } from './lib/loader.mjs';
 import { initAI } from './lib/ai.mjs';
 import { getDatabase, saveDatabase } from './lib/database.mjs';
+import { menus } from './plugins/menu.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,69 +18,56 @@ const __dirname = path.dirname(__filename);
 let sock = null;
 let plugins = [];
 
-// 1. تعريف النصوص المزخرفة للقوائم
-const menus = {
-    rpg: `╭══ 🎮 نظام RPG ══╮
-║ .تسجيل <صنف>  │ إنشاء شخصية جديدة
-║ .ملف              │ ملفك الشخصي
-║ .قتال             │ قتال وحوش 🐲
-║ .تحدي @شخص      │ تحدي لاعب PvP
-║ .متجر             │ شراء معدات
-╰═════════════════════════════════❖`,
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📋 دالة إرسال القائمة الرئيسية التفاعلية
+// ═══════════════════════════════════════════════════════════════════════════════
 
-    clans: `╭══ ⚔️ نظام الكلانات ══╮
-║ .إنشاء_كلان <اسم>│ تأسيس كلان جديد
-║ .دعوة             │ دعوة أعضاء
-║ .حرب <اسم_كلان> │ بدء تحدي
-║ .قبول_التحدي      │ قبول التحدي
-║ .رفض_التحدي       │ رفض التحدي
-╰═════════════════════════════════❖`,
-
-    ai: `╭══ 🤖 الذكاء الاصطناعي ══╮
-║ تفعيل_ذكاء       │ تفعيل فاطمة
-║ إغلاق_ذكاء       │ إيقاف فاطمة
-║ .سؤال <نص>      │ اسأل فاطمة
-║ .ترجمة <نص>      │ ترجمة نصوص
-║ حالة_ذكاء        │ مستوى فاطمة
-╰═════════════════════════════════❖`,
-
-    group: `╭══ 👥 المجموعات ══╮
-║ .الجميع <نص>    │ منشن للكل 📢
-║ .طرد @شخص       │ طرد عضو
-║ .ترقية @شخص     │ ترقية لمشرف
-║ .قفل             │ قفل المجموعة
-╰═════════════════════════════════❖`
-};
-
-// دالة إرسال القائمة الرئيسية التفاعلية
 async function sendMainMenu(remoteJid) {
     const db = getDatabase();
-    const uptime = "0d 0h 0m"; 
-    const commandsCount = "175+";
+    const up = process.uptime();
+    const uptime = `${Math.floor(up/86400)}d ${Math.floor((up%86400)/3600)}h ${Math.floor((up%3600)/60)}m`;
+    const commandsCount = "200+";
+    const playersCount = Object.keys(db.players || {}).length;
+    const clansCount = Object.keys(db.clans || {}).length;
 
     const listMessage = {
-        text: `أهلاً بك! أنا بوت *فاطومة* 🤖\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}`,
-        footer: "بواسطة: zaza | نسخة 10.0",
-        title: "🌙 فَــاطِــمَــة بَــوت",
-        buttonText: "فتح الأقسام 📂",
+        text: `أهلاً بك! أنا بوت *فاطمة* 🌙\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}\n👥 اللاعبين: ${playersCount} | 🏰 الكلانات: ${clansCount}`,
+        footer: 'بواسطة: zaza | نسخة 11.0',
+        title: '🌙 فَــاطِــمَــة بَــوت v11.0',
+        buttonText: 'فتح الأقسام 📂',
         sections: [
             {
-                title: "🎮 الألعاب والأنظمة",
+                title: '🎮 الألعاب والأنظمة',
                 rows: [
-                    { title: "نظام RPG", rowId: ".menu_rpg", description: "قتال، صيد، وتطوير أسلحة" },
-                    { title: "الكلانات والحروب", rowId: ".menu_clans", description: "إنشاء كلان وتحديات" }
+                    { title: 'نظام RPG', rowId: 'rpg_menu', description: 'قتال، صيد، تعدين، وصناديق' },
+                    { title: 'المهارات والقدرات', rowId: 'skills_menu', description: 'شجرة مهارات ونقاط قدرة' },
+                    { title: 'نظام القرية', rowId: 'village_menu', description: 'بناء قرية، وحدات، وهجمات' },
+                    { title: 'نظام الزعماء', rowId: 'boss_menu', description: 'قتال جماعي ضد زعماء أقوياء' },
+                    { title: 'المهام والإنجازات', rowId: 'quests_menu', description: 'مهام يومية وأسبوعية' }
                 ]
             },
             {
-                title: "🤖 ذكاء وأدوات",
+                title: '🏰 الكلانات والحروب',
                 rows: [
-                    { title: "الذكاء الاصطناعي", rowId: ".menu_ai", description: "سؤال، ترجمة، وتفعيل فاطمة" }
+                    { title: 'نظام الكلانات', rowId: 'clans_menu', description: 'إنشاء كلان وتبرعات' },
+                    { title: 'حروب الكلانات', rowId: 'war_menu', description: 'تحديات ومعارك كلانية' },
+                    { title: 'السوق المفتوح', rowId: 'market_menu', description: 'بيع وشراء بين اللاعبين' }
                 ]
             },
             {
-                title: "👥 الإدارة",
+                title: '🤖 ذكاء وأدوات',
                 rows: [
-                    { title: "إدارة المجموعات", rowId: ".menu_group", description: "طرد، ترقية، وقفل" }
+                    { title: 'الذكاء الاصطناعي', rowId: 'ai_menu', description: 'سؤال، ترجمة، وشرح' },
+                    { title: 'الملصقات', rowId: 'sticker_menu', description: 'إنشاء وتحويل الملصقات' },
+                    { title: 'الأدوات', rowId: 'tools_menu', description: 'أدوات متنوعة' },
+                    { title: 'التحميلات', rowId: 'download_menu', description: 'تحميل فيديوهات وأغاني' }
+                ]
+            },
+            {
+                title: '👥 الإدارة',
+                rows: [
+                    { title: 'إدارة المجموعات', rowId: 'group_menu', description: 'طرد، ترقية، وإعدادات' },
+                    { title: 'أوامر المالك', rowId: 'owner_menu', description: 'إدارة البوت (للمالك فقط)' }
                 ]
             }
         ],
@@ -88,6 +76,10 @@ async function sendMainMenu(remoteJid) {
 
     await sock.sendMessage(remoteJid, listMessage);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🚀 بدء التشغيل
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function start() {
   const { version } = await fetchLatestBaileysVersion();
@@ -133,25 +125,44 @@ async function start() {
         const pushName = msg.pushName || 'مستخدم';
         const isOwner = ['393271166550'].some(o => sender?.includes(o));
         const msgType = getContentType(msg.message);
+        const prefix = db.settings?.prefix || '.';
         
-        // معالجة ردود القائمة التفاعلية (Interactive Response)
+        // ═══════════════════════════════════════════════════════════════════════
+        // 📋 معالجة ردود القائمة التفاعلية
+        // ═══════════════════════════════════════════════════════════════════════
+        
         if (msgType === 'interactiveResponseMessage') {
           const paramsJson = msg.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
           if (paramsJson) {
-            const selectionId = JSON.parse(paramsJson).id;
-            
-            // الرد بناءً على الاختيار
-            if (selectionId === '.menu_rpg') {
-              await sock.sendMessage(from, { text: menus.rpg });
-            } else if (selectionId === '.menu_clans') {
-              await sock.sendMessage(from, { text: menus.clans });
-            } else if (selectionId === '.menu_ai') {
-              await sock.sendMessage(from, { text: menus.ai });
-            } else if (selectionId === '.menu_group') {
-              await sock.sendMessage(from, { text: menus.group });
+            try {
+              const selectionId = JSON.parse(paramsJson).id;
+              
+              // الرد بناءً على الاختيار
+              const menuResponses = {
+                'rpg_menu': () => menus.rpg(prefix),
+                'skills_menu': () => menus.skills(prefix),
+                'village_menu': () => menus.village(prefix),
+                'boss_menu': () => menus.boss(prefix),
+                'quests_menu': () => menus.quests(prefix),
+                'clans_menu': () => menus.clans(prefix),
+                'war_menu': () => menus.war(prefix),
+                'market_menu': () => menus.market(prefix),
+                'ai_menu': () => menus.ai(prefix),
+                'sticker_menu': () => menus.sticker(prefix),
+                'tools_menu': () => menus.tools(prefix),
+                'download_menu': () => menus.download(prefix),
+                'group_menu': () => menus.group(prefix),
+                'owner_menu': () => menus.owner(prefix)
+              };
+              
+              if (menuResponses[selectionId]) {
+                await sock.sendMessage(from, { text: menuResponses[selectionId]() });
+              }
+            } catch (e) {
+              console.error('❌ خطأ في معالجة القائمة:', e.message);
             }
           }
-          continue; // إنهاء المعالجة هنا لعدم تنفيذ كود آخر
+          continue;
         }
         
         // الحصول على معلومات المجموعة
@@ -179,16 +190,15 @@ async function start() {
           // توليد رد ذكي من فاطمة
           const aiResponse = await generateResponse({ body }, from, sender, pushName);
           if (aiResponse) {
-            await delay(1000 + Math.random() * 2000); // تأخير طبيعي
+            await delay(1000 + Math.random() * 2000);
             await sock.sendMessage(from, { text: aiResponse });
           }
         }
 
-        const prefix = db.settings?.prefix || '.';
         const isCommand = body.startsWith(prefix);
         
         // أمر عرض المينو الرئيسي
-        if (body === '.menu') {
+        if (body === `${prefix}menu` || body === '.menu') {
           await sendMainMenu(from);
           continue;
         }
@@ -208,11 +218,16 @@ async function start() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📋 الشاشة الافتتاحية
+// ═══════════════════════════════════════════════════════════════════════════════
+
 console.log(`
 ╭═══════════════════════════════════════════════════════════════❖
-║   🌙 فَــاطِــمَــة بَــوت v10.0
+║   🌙 فَــاطِــمَــة بَــوت v11.0
 ║   ★ المالك: zaza
-║   ★ 🎮 RPG | 🏰 Clans | 🛒 Market | 🤖 AI
+║   ★ 🎮 RPG | 🏘️ Village | ⚡ Skills | 👹 Boss
+║   ★ 📜 Quests | 🏰 Clans | 🛒 Market | 🤖 AI
 ╰═══════════════════════════════════════════════════════════════❖
 `);
 
