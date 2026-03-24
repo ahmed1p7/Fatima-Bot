@@ -31,9 +31,9 @@ async function sendMainMenu(remoteJid) {
     const clansCount = Object.keys(db.clans || {}).length;
 
     const listMessage = {
-        text: `أهلاً بك! أنا بوت *فاطمة* 🌙\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}\n👥 اللاعبين: ${playersCount} | 🏰 الكلانات: ${clansCount}`,
-        footer: 'بواسطة: zaza | نسخة 11.0',
-        title: '🌙 فَــاطِــمَــة بَــوت v11.0',
+        text: `أهلاً بك! أنا بوت *فاطمة* 🌙\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}\n👥 اللاعبين: ${playersCount} | 🏰 الكلانات: ${clansCount}\n\n📢 القناة الرسمية:\nhttps://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n`,
+        footer: 'بواسطة: zaza | نسخة 12.0',
+        title: '🌙 فَــاطِــمَــة بَــوت v12.0',
         buttonText: 'فتح الأقسام 📂',
         sections: [
             {
@@ -224,10 +224,11 @@ async function start() {
 
 console.log(`
 ╭═══════════════════════════════════════════════════════════════❖
-║   🌙 فَــاطِــمَــة بَــوت v11.0
+║   🌙 فَــاطِــمَــة بَــوت v12.0
 ║   ★ المالك: zaza
 ║   ★ 🎮 RPG | 🏘️ Village | ⚡ Skills | 👹 Boss
 ║   ★ 📜 Quests | 🏰 Clans | 🛒 Market | 🤖 AI
+║   ★ 📢 القناة: whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n
 ╰═══════════════════════════════════════════════════════════════❖
 `);
 
