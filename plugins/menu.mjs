@@ -228,8 +228,6 @@ export default {
     mainText += `   \`9\` ai | \`10\` sticker | \`11\` tools | \`12\` download\n\n`;
     mainText += `👥 *الإدارة:*\n`;
     mainText += `   \`13\` group | \`14\` owner\n\n`;
-    mainText += `📢 *القناة الرسمية:*\n`;
-    mainText += `   https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n\n\n`;
     mainText += `*مثال:* \n`;
     mainText += `  \`${p}menu rpg\` أو \`${p}menu 1\``;
 
