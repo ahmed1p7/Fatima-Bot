@@ -48,8 +48,16 @@ export default {
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // إرسال إعلان
-      return sock.sendMessage(from, { text: result.message });
+      // إرسال إعلان مع الصورة
+      // formatBossAnnouncement الآن دالة async ترسل الصورة مباشرة إذا توفر sock
+      const announcementText = await formatBossAnnouncement(result.boss, sock, from);
+      
+      // إذا كان النص فارغ، فهذا يعني أن الصورة أُرسلت بالفعل
+      if (announcementText) {
+        return sock.sendMessage(from, { text: announcementText });
+      }
+      
+      return; // الصورة أُرسلت بالفعل
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

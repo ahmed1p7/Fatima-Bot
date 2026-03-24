@@ -1,16 +1,1 @@
-# Dependencies
-node_modules/
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
+Nothing needs to be added to .gitignore since only JavaScript source files (.mjs) were added and modified, which are legitimate source code files that should be tracked in version control.
