@@ -5,11 +5,24 @@
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { RPG } from '../lib/rpg.mjs';
 import {
-  createClan, getClan, joinClan, donateToClan,
-  getClanBuff, clanXpForLevel, progressClanBar,
-  challengeClan, acceptChallenge, rejectChallenge, getPendingChallenges,
-  attackInWar, endWar, getActiveWar, getAvailableClans, getPlayerClan,
-  getClanEventSummary, WAR_CHANNEL
+  createClanForGroup as createClan,
+  getClan,
+  joinClan,
+  donateToClanForGroup as donateToClan,
+  getClanBuff, 
+  clanXpForLevel, 
+  progressClanBar,
+  challengeClanForGroup as challengeClan,
+  acceptChallengeForGroup as acceptChallenge,
+  rejectChallenge,
+  getPendingChallenges,
+  attackInWarForGroup as attackInWar,
+  endWar,
+  getActiveWar,
+  getAvailableClans,
+  getPlayerClan,
+  getClanEventSummary,
+  WAR_CHANNEL
 } from '../lib/clan.mjs';
 import { formatWarForChannel } from '../lib/market.mjs';
 
