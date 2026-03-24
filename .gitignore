@@ -1,1 +1,3 @@
-Nothing needs to be added to .gitignore since only JavaScript source files (.mjs) were added and modified, which are legitimate source code files that should be tracked in version control.
+```
+node_modules/
+```
