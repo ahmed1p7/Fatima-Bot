@@ -1,6 +1,6 @@
 {
   "name": "fatima-bot",
-  "version": "10.0.0",
+  "version": "11.0.0",
   "description": "🌙 فاطمة بوت - بوت واتساب احترافي بالعربية مع نظام RPG والكلانات والسوق",
   "main": "index.mjs",
   "type": "module",
@@ -18,7 +18,9 @@
     "node-fetch": "^3.3.2",
     "z-ai-web-dev-sdk": "^0.0.17",
     "wa-sticker-formatter": "^4.3.2",
-    "sharp": "^0.32.6"
+    "sharp": "^0.32.6",
+    "@napi-rs/canvas": "^0.1.44",
+    "node-cron": "^3.0.3"
   },
   "engines": {
     "node": ">=18.0.0"
