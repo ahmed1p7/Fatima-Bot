@@ -5,7 +5,7 @@
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { updateQuestProgress } from '../lib/quests.mjs';
 import { 
-  BOSSES, spawnRandomBoss, spawnBoss, attackBoss, 
+  BOSSES, spawnRandomBoss, spawnBoss, attackBoss, registerForBoss,
   getActiveBoss, formatBossAnnouncement, formatBossStatus, formatBattleResult,
   getPlayerBossRewards
 } from '../lib/boss.mjs';
@@ -15,6 +15,7 @@ export default {
   commands: [
     'زعيم', 'boss', 'استدعاء_زعيم',
     'هجوم_زعيم', 'attack_boss', 'هجوم',
+    'مشاركة', 'register_boss', 'قتال_الزعيم',
     'حالة_زعيم', 'boss_status',
     'زعماء', 'bosses', 'قائمة_زعماء',
     'مكافآتي', 'my_rewards'
@@ -48,8 +49,73 @@ export default {
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // إرسال إعلان
-      return sock.sendMessage(from, { text: result.message });
+      // إرسال إعلان مع الصورة
+      // formatBossAnnouncement الآن دالة async ترسل الصورة مباشرة إذا توفر sock
+      const announcementText = await formatBossAnnouncement(result.boss, sock, from);
+      
+      // إذا كان النص فارغ، فهذا يعني أن الصورة أُرسلت بالفعل
+      if (announcementText) {
+        return sock.sendMessage(from, { text: announcementText });
+      }
+      
+      return; // الصورة أُرسلت بالفعل
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // التسجيل في قتال الزعيم
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['مشاركة', 'register_boss', 'قتال_الزعيم'].includes(command)) {
+      const player = data.players?.[sender];
+      if (!player) {
+        return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
+      }
+
+      // التحقق من وجود زعيم نشط
+      const boss = getActiveBoss(from);
+      if (!boss) {
+        return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط! استخدم .زعيم لاستدعاء واحد.' });
+      }
+
+      // التحقق من حالة التسجيل
+      if (boss.status !== 'registration') {
+        return sock.sendMessage(from, { text: '❌ انتهى وقت التسجيل! المعركة جارية الآن.' });
+      }
+
+      // التحقق من عدم التسجيل المسبق
+      if (boss.registeredPlayers?.includes(sender)) {
+        return sock.sendMessage(from, { text: '✅ أنت مسجل بالفعل في هذه المعركة!' });
+      }
+
+      // التحقق من الطاقة (نقطة واحدة كرسوم دخول)
+      const staminaCost = 1;
+      const staminaMax = 100 + (player.level * 5);
+      const currentStamina = Math.min(staminaMax, player.stamina + Math.floor((Date.now() - (player.lastStaminaUpdate || Date.now())) / 60000));
+      
+      if (currentStamina < staminaCost) {
+        return sock.sendMessage(from, { text: '❌ طاقة غير كافية! تحتاج نقطة طاقة واحدة للتسجيل.' });
+      }
+
+      // خصم الطاقة
+      player.stamina = currentStamina - staminaCost;
+      player.lastStaminaUpdate = Date.now();
+
+      // تسجيل اللاعب
+      const result = registerForBoss(boss.instanceId, {
+        id: sender,
+        name: pushName,
+        class: player.class,
+        level: player.level
+      });
+
+      if (!result.success) {
+        return sock.sendMessage(from, { text: result.message });
+      }
+
+      saveDatabase();
+
+      return sock.sendMessage(from, { 
+        text: `✅ تم تسجيلك بنجاح!\n\n👥 عدد المشاركين: ${result.participantCount}\n⏰ الوقت المتبقي للتسجيل: ${Math.ceil((boss.registrationEnds - Date.now()) / 60000)} دقيقة\n\nاستعد للمعركة واستخدم .هجوم_زعيم عندما تبدأ!` 
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

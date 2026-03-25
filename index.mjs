@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🌙 فاطمة بوت - النسخة المتطورة v12.0 مع الأنظمة الجديدة
-// يتضمن: نظام الأقاليم، الزعماء الديناميكي، المهام المجدولة
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay, getContentType } from '@whiskeysockets/baileys';
@@ -12,6 +11,8 @@ import { loadPlugins, execCmd } from './lib/loader.mjs';
 import { initAI } from './lib/ai.mjs';
 import { getDatabase, saveDatabase } from './lib/database.mjs';
 import { menus } from './plugins/menu.mjs';
+import cron from 'node-cron';
+import { resetDailyStamina, spawnRandomBossEvent } from './lib/scheduler.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,13 +108,31 @@ async function start() {
     if (connection === 'open') {
       console.log('\n✅ فاطمة بوت جاهزة! 🌙');
       console.log('🔌 Plugins: ' + plugins.length);
-      
-      // تهيئة نظام المهام المجدولة
-      initScheduler(sock);
     }
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🕐 المهام المجدولة (Scheduled Tasks)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  // إعادة تعيين الطاقة يومياً عند منتصف الليل
+  cron.schedule('0 0 * * *', () => {
+    console.log('🔄 [Scheduler] إعادة تعيين الطاقة اليومية...');
+    resetDailyStamina(sock);
+  });
+  
+  // ظهور الزعماء العشوائي كل ساعة
+  cron.schedule('0 * * * *', () => {
+    console.log('👹 [Scheduler] فحص ظهور الزعماء...');
+    spawnRandomBossEvent(sock);
+  });
+  
+  // حفظ قاعدة البيانات كل 5 دقائق
+  cron.schedule('*/5 * * * *', () => {
+    saveDatabase();
+  });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -234,8 +253,6 @@ console.log(`
 ║   ★ 📜 Quests | 🏰 Clans | 🛒 Market | 🤖 AI
 ╰═══════════════════════════════════════════════════════════════❖
 `);
-
-import { initScheduler } from './lib/scheduler.mjs';
 
 initAI().then(() => loadPlugins()).then(p => { plugins = p; start(); });
 
