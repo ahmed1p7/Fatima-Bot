@@ -3,7 +3,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
-import { RPG } from '../lib/rpg.mjs';
 import {
   createClanForGroup as createClan,
   getClan,
