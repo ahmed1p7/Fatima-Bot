@@ -6,6 +6,7 @@ import { getRpgData, saveDatabase, createNewPlayer, ensurePlayer } from '../lib/
 import { RPG, levelUp, healthBar, fightMonster, pvpBattle, generateWeapon, generateArmor, upgradeWeapon, fish as doFish, mine as doMine, getUpgradeCost, getSellPrice, xpForLevel } from '../lib/rpg.mjs';
 import { allocateAbilityPoint, unlockSkill, useActiveSkill, formatSkillTree, formatPlayerSkills, SKILL_TREES } from '../lib/skills.mjs';
 import { updateQuestProgress } from '../lib/quests.mjs';
+import { getActiveBoss } from '../lib/boss.mjs';
 
 // دالة للحصول على لاعب مع التأكد من وجود جميع الحقول
 function getPlayer(data, sender) {
@@ -32,7 +33,7 @@ export default {
     'ملف', 'profile', 'شخصية',
     'قتال', 'fight',
     'تحدي', 'challenge',
-    'علاج', 'heal',
+    'علاج', 'heal', 'علاج_جماعي', 'heal_all',
     'يومي', 'daily',
     'عمل', 'work',
     'صيد', 'fish',
@@ -276,6 +277,81 @@ ${classEmoji} • • ✤ ${p.name} ✤ • • ${classEmoji}
 
       saveDatabase();
       return sock.sendMessage(from, { text: `💚 تم علاجك بالكامل!\n💰 -${cost} ذهب` });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // علاج جماعي (للشافيين في حروب الزعماء والكلانات)
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['علاج_جماعي', 'heal_all'].includes(command)) {
+      const p = getPlayer(data, sender);
+      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      // يجب أن يكون اللاعب شافي
+      if (p.class !== 'شافي') {
+        return sock.sendMessage(from, { text: '❌ فقط الشافيين يمكنهم استخدام العلاج الجماعي!' });
+      }
+
+      // التحقق من وجود زعيم نشط أو حرب كلان
+      const boss = getActiveBoss(from);
+      const inWar = boss && boss.status === 'active';
+      
+      if (!inWar) {
+        return sock.sendMessage(from, { text: '❌ العلاج الجماعي متاح فقط أثناء معارك الزعماء أو حروب الكلانات!' });
+      }
+
+      // التحقق من وقت التهدئة (5 دقائق)
+      const now = Date.now();
+      const lastHealAll = p.lastHealAll || 0;
+      const cooldown = 5 * 60 * 1000; // 5 دقائق
+
+      if (now - lastHealAll < cooldown) {
+        const remaining = Math.ceil((cooldown - (now - lastHealAll)) / 60000);
+        return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} دقيقة قبل استخدام العلاج الجماعي مرة أخرى!` });
+      }
+
+      // التحقق من الطاقة
+      const staminaCost = 2;
+      const staminaMax = 100 + (p.level * 5);
+      const currentStamina = Math.min(staminaMax, p.stamina + Math.floor((Date.now() - (p.lastStaminaUpdate || Date.now())) / 60000));
+
+      if (currentStamina < staminaCost) {
+        return sock.sendMessage(from, { text: '❌ طاقة غير كافية! تحتاج نقطتي طاقة.' });
+      }
+
+      // تطبيق العلاج الجماعي
+      p.stamina = currentStamina - staminaCost;
+      p.lastHealAll = now;
+      p.lastStaminaUpdate = now;
+
+      // علاج جميع المشاركين في المعركة
+      let healedCount = 0;
+      const totalHealing = p.mag * 5; // قوة العلاج تعتمد على السحر
+
+      for (const participantId of boss.registeredPlayers || []) {
+        const participant = data.players[participantId];
+        if (participant && participant.hp < participant.maxHp) {
+          const healAmount = Math.min(totalHealing, participant.maxHp - participant.hp);
+          participant.hp += healAmount;
+          healedCount++;
+        }
+      }
+
+      // مكافأة للشافى
+      const rewardXp = healedCount * 50;
+      const rewardGold = healedCount * 25;
+      p.xp = (p.xp || 0) + rewardXp;
+      p.gold = (p.gold || 0) + rewardGold;
+
+      // تحديث الإحصائيات
+      if (!p.stats) p.stats = {};
+      p.stats.groupHeals = (p.stats.groupHeals || 0) + 1;
+      p.stats.totalHealing = (p.stats.totalHealing || 0) + (totalHealing * healedCount);
+
+      saveDatabase();
+
+      return sock.sendMessage(from, { 
+        text: `💚 ═══════ علاج جماعي ═══════ 💚\n\n✨ ${p.name} يستخدم العلاج الجماعي!\n\n👥 عدد المعالجين: ${healedCount}\n💪 قوة العلاج: ${totalHealing}\n\n🎁 المكافآت:\n⭐ +${rewardXp} XP\n💰 +${rewardGold} ذهب\n\n⏰ التهدئة: 5 دقائق` 
+      });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
