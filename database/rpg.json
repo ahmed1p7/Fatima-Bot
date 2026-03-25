@@ -1,9 +1,15 @@
 {
   "players": {},
   "clans": {},
+  "territories": {},
+  "bosses": {},
   "market": {
     "storage": {},
-    "offers": []
+    "offers": [],
+    "priceHistory": {},
+    "totalTransactions": 0
   },
-  "version": 12
+  "bossHistory": [],
+  "globalEvents": [],
+  "version": 15
 }

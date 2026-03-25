@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🌙 فاطمة بوت - النسخة المتطورة v12.0 مع الأنظمة الجديدة
+// 🌙 فاطمة بوت - النسخة المتطورة v13.0 مع الأنظمة الجديدة
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay, getContentType } from '@whiskeysockets/baileys';
@@ -8,11 +8,8 @@ import qrcode from 'qrcode-terminal';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadPlugins, execCmd } from './lib/loader.mjs';
-import { initAI } from './lib/ai.mjs';
-import { getDatabase, saveDatabase } from './lib/database.mjs';
-import { menus } from './plugins/menu.mjs';
-import cron from 'node-cron';
-import { resetDailyStamina, spawnRandomBossEvent } from './lib/scheduler.mjs';
+import { getDatabase, saveDatabase, getRpgData } from './lib/database.mjs';
+import { initScheduler } from './lib/scheduler.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,49 +23,47 @@ let plugins = [];
 
 async function sendMainMenu(remoteJid) {
     const db = getDatabase();
+    const rpgData = getRpgData();
     const up = process.uptime();
     const uptime = `${Math.floor(up/86400)}d ${Math.floor((up%86400)/3600)}h ${Math.floor((up%3600)/60)}m`;
-    const commandsCount = "200+";
-    const playersCount = Object.keys(db.players || {}).length;
-    const clansCount = Object.keys(db.clans || {}).length;
+    const playersCount = Object.keys(rpgData.players || {}).length;
+    const clansCount = Object.keys(rpgData.clans || {}).length;
 
     const listMessage = {
-        text: `أهلاً بك! أنا بوت *فاطمة* 🌙\nاختر القسم الذي تريد تصفح أوامره من القائمة أدناه.\n\n⏱️ النشاط: ${uptime}\n📊 الأوامر المتاحة: ${commandsCount}\n👥 اللاعبين: ${playersCount} | 🏰 الكلانات: ${clansCount}`,
-        footer: 'بواسطة: zaza | نسخة 12.0',
-        title: '🌙 فَــاطِــمَــة بَــوت v12.0',
+        text: `أهلاً بك! أنا بوت *فاطمة* 🌙
+اختر القسم الذي تريد تصفح أوامره من القائمة أدناه.
+
+⏱️ النشاط: ${uptime}
+👥 اللاعبين: ${playersCount} | 🏰 الكلانات: ${clansCount}`,
+        footer: 'بواسطة: zaza | نسخة 13.0',
+        title: '🌙 فَــاطِــمَــة بَــوت v13.0',
         buttonText: 'فتح الأقسام 📂',
         sections: [
             {
                 title: '🎮 الألعاب والأنظمة',
                 rows: [
-                    { title: 'نظام RPG', rowId: 'rpg_menu', description: 'قتال، صيد، تعدين، وصناديق' },
+                    { title: 'نظام RPG', rowId: 'rpg_menu', description: 'تسجيل، قتال، صيد، تعدين، وصناديق' },
                     { title: 'المهارات والقدرات', rowId: 'skills_menu', description: 'شجرة مهارات ونقاط قدرة' },
-                    { title: 'نظام القرية', rowId: 'village_menu', description: 'بناء قرية، وحدات، وهجمات' },
-                    { title: 'نظام الزعماء', rowId: 'boss_menu', description: 'قتال جماعي ضد زعماء أقوياء' },
-                    { title: 'المهام والإنجازات', rowId: 'quests_menu', description: 'مهام يومية وأسبوعية' }
+                    { title: 'نظام الزعماء', rowId: 'boss_menu', description: 'قتال جماعي ضد زعماء أقوياء' }
                 ]
             },
             {
-                title: '🏰 الكلانات والحروب',
+                title: '🏰 الكلانات',
                 rows: [
-                    { title: 'نظام الكلانات', rowId: 'clans_menu', description: 'إنشاء كلان وتبرعات' },
-                    { title: 'حروب الكلانات', rowId: 'war_menu', description: 'تحديات ومعارك كلانية' },
-                    { title: 'السوق المفتوح', rowId: 'market_menu', description: 'بيع وشراء بين اللاعبين' }
+                    { title: 'نظام الكلانات', rowId: 'clans_menu', description: 'إنشاء كلان وتبرعات وحروب' }
                 ]
             },
             {
                 title: '🤖 ذكاء وأدوات',
                 rows: [
                     { title: 'الذكاء الاصطناعي', rowId: 'ai_menu', description: 'سؤال، ترجمة، وشرح' },
-                    { title: 'الملصقات', rowId: 'sticker_menu', description: 'إنشاء وتحويل الملصقات' },
-                    { title: 'الأدوات', rowId: 'tools_menu', description: 'أدوات متنوعة' },
-                    { title: 'التحميلات', rowId: 'download_menu', description: 'تحميل فيديوهات وأغاني' }
+                    { title: 'الأدوات', rowId: 'tools_menu', description: 'أدوات متنوعة' }
                 ]
             },
             {
                 title: '👥 الإدارة',
                 rows: [
-                    { title: 'إدارة المجموعات', rowId: 'group_menu', description: 'طرد، ترقية، وإعدادات' },
+                    { title: 'إدارة المجموعات', rowId: 'group_menu', description: 'طرد، ترقية، وإنذارات' },
                     { title: 'أوامر المالك', rowId: 'owner_menu', description: 'إدارة البوت (للمالك فقط)' }
                 ]
             }
@@ -78,6 +73,232 @@ async function sendMainMenu(remoteJid) {
 
     await sock.sendMessage(remoteJid, listMessage);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📋 القوائم الفرعية
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const menuResponses = {
+  'rpg_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+🎮 • • ✤ أوامر RPG ✤ • • 🎮
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+│ 📝 التسجيل:
+│ ${p}تسجيل <الصنف>
+│ ${p}ملفي - عرض ملفك
+│ ${p}حذف_تسجيل تأكيد
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+⚔️ القتال:
+│ ${p}هجوم - قتال وحش
+│ ${p}تحدي @شخص - PvP
+│ ${p}علاج - استعادة HP
+
+💰 الموارد:
+│ ${p}يومي - جائزة يومية
+│ ${p}عمل - كسب ذهب
+│ ${p}صيد - صيد سمك
+│ ${p}تعدين - تعدين معادن
+
+📦 الصناديق:
+│ ${p}صناديقي - عرض صناديقك
+│ ${p}فتح_صندوق <نوع>
+
+⚡ المهارات:
+│ ${p}مهاراتي - مهاراتك
+│ ${p}شجرة - شجرة المهارات
+│ ${p}مهارة <اسم> - فتح مهارة
+│ ${p}نقاط <stat> - توزيع نقاط
+
+👹 الزعماء:
+│ ${p}زعماء - قائمة الزعماء
+│ ${p}قتال_الزعيم - تسجيل
+│ ${p}هجوم_زعيم - هجوم
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'skills_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+⚡ • • ✤ نظام المهارات ✤ • • ⚡
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+🌙 المهارات السلبية (دائمة):
+│ • الاستنزاف - استعادة HP
+│ • التحمل المتفجر - ضرر إضافي
+│ • الاختراق - تجاهل دفاع
+│ • الحظ الملعون - فشل الخصم
+
+⚔️ المهارات النشطة (بتهدئة):
+│ • سرقة المانا - حرق طاقة
+│ • الدرع التلقائي - حماية
+│ • الضربة المزدوجة - ضرر مضاعف
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+💡 ${p}شجرة - عرض مهارات صنفك
+💡 ${p}مهارة <اسم> - فتح مهارة
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'boss_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+👹 • • ✤ نظام الزعماء ✤ • • 👹
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+🎭 آلية العمل:
+│ 1. يظهر الزعيم عشوائياً
+│ 2. التسجيل لمدة 10 دقائق
+│ 3. المعركة تدوم 20 دقيقة
+│ 4. توزيع الجوائز على الناجين
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+📋 الأوامر:
+│ ${p}زعماء - قائمة الزعماء
+│ ${p}قتال_الزعيم - تسجيل
+│ ${p}هجوم_زعيم - هجوم
+│ ${p}حالة_زعيم - معلومات
+
+🏆 MVP يحصل على صندوق ملحمي!
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'clans_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+🏰 • • ✤ نظام الكلانات ✤ • • 🏰
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+📋 أوامر الكلان:
+│ ${p}تأسيس_كلان <اسم>
+│ ${p}انضمام #ID
+│ ${p}معلومات_كلان
+│ ${p}تبرع <نوع> <كمية>
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+⚔️ الحروب:
+│ ${p}تحدي #ID - تحدي كلان
+│ ${p}حالتي_الحرب
+
+🏘️ مباني الأصناف:
+│ المحارب ← الثكنات
+│ الساحر ← برج السحر
+│ الشافي ← المشفى
+│ الرامي/القاتل ← برج الاستطلاع
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'ai_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+🤖 • • ✤ الذكاء الاصطناعي ✤ • • 🤖
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+📋 الأوامر:
+│ ${p}اسأل <سؤال>
+│ ${p}نصيحة - نصيحة مخصصة
+│ ${p}ترجمة <نص>
+│ ${p}شرح <موضوع>
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+🧠 فاطمة ستساعدك في رحلتك!
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'tools_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+🛠️ • • ✤ الأدوات ✤ • • 🛠️
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+│ ${p}ملصق - إنشاء ملصق
+│ ${p}توليد - توليد صورة AI
+│ ${p}تحويل - تحويل صورة
+│ ${p}خمن - لعبة تخمين
+│ ${p}حجر_ورقة_مقص
+│ ${p}كتابة_سريعة
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'group_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+👥 • • ✤ إدارة المجموعات ✤ • • 👥
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+📢 المنشنات:
+│ ${p}منشن - منشن علني
+│ ${p}مخفي - منشن مخفي
+
+⚠️ الإنذارات:
+│ ${p}إنذار @شخص <سبب>
+│ ${p}الإنذارات @شخص
+│ ${p}عفو @شخص
+
+👥 الإدارة:
+│ ${p}طرد @شخص
+│ ${p}ترقية @شخص
+│ ${p}تنزيل @شخص
+│ ${p}حذف - حذف رسالة
+
+⚙️ الإعدادات:
+│ ${p}فتح / ${p}إغلاق
+│ ${p}تغيير_اسم <اسم>
+│ ${p}القواعد / ${p}وضع_قواعد
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+
+  'owner_menu': (p) => `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+👑 • • ✤ أوامر المالك ✤ • • 👑
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+🔧 الإدارة:
+│ ${p}تحديث - تحديث البوت
+│ ${p}إعادة - إعادة التشغيل
+│ ${p}إحصائيات - إحصائيات البوت
+│ ${p}حالة - حالة البوت
+
+📢 الإرسال:
+│ ${p}إرسال <رسالة> - للكل
+│ ${p}مجموعات - قائمة المجموعات
+
+🎮 اللاعبين:
+│ ${p}تصفير @شخص
+│ ${p}إعطاء <نوع> <كمية> @شخص
+│ ${p}معلومات_لاعب @شخص
+│ ${p}قائمة_اللاعبين
+
+⚙️ قاعدة البيانات:
+│ ${p}ترقية - تحديث DB
+│ ${p}نسخة_احتياطية
+│ ${p}معلومات_قاعدة
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🚀 بدء التشغيل
@@ -108,31 +329,13 @@ async function start() {
     if (connection === 'open') {
       console.log('\n✅ فاطمة بوت جاهزة! 🌙');
       console.log('🔌 Plugins: ' + plugins.length);
+      
+      // تهيئة المجدول
+      initScheduler(sock);
     }
   });
 
   sock.ev.on('creds.update', saveCreds);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 🕐 المهام المجدولة (Scheduled Tasks)
-  // ═══════════════════════════════════════════════════════════════════════════
-  
-  // إعادة تعيين الطاقة يومياً عند منتصف الليل
-  cron.schedule('0 0 * * *', () => {
-    console.log('🔄 [Scheduler] إعادة تعيين الطاقة اليومية...');
-    resetDailyStamina(sock);
-  });
-  
-  // ظهور الزعماء العشوائي كل ساعة
-  cron.schedule('0 * * * *', () => {
-    console.log('👹 [Scheduler] فحص ظهور الزعماء...');
-    spawnRandomBossEvent(sock);
-  });
-  
-  // حفظ قاعدة البيانات كل 5 دقائق
-  cron.schedule('*/5 * * * *', () => {
-    saveDatabase();
-  });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -160,26 +363,8 @@ async function start() {
             try {
               const selectionId = JSON.parse(paramsJson).id;
               
-              // الرد بناءً على الاختيار
-              const menuResponses = {
-                'rpg_menu': () => menus.rpg(prefix),
-                'skills_menu': () => menus.skills(prefix),
-                'village_menu': () => menus.village(prefix),
-                'boss_menu': () => menus.boss(prefix),
-                'quests_menu': () => menus.quests(prefix),
-                'clans_menu': () => menus.clans(prefix),
-                'war_menu': () => menus.war(prefix),
-                'market_menu': () => menus.market(prefix),
-                'ai_menu': () => menus.ai(prefix),
-                'sticker_menu': () => menus.sticker(prefix),
-                'tools_menu': () => menus.tools(prefix),
-                'download_menu': () => menus.download(prefix),
-                'group_menu': () => menus.group(prefix),
-                'owner_menu': () => menus.owner(prefix)
-              };
-              
               if (menuResponses[selectionId]) {
-                await sock.sendMessage(from, { text: menuResponses[selectionId]() });
+                await sock.sendMessage(from, { text: menuResponses[selectionId](prefix) });
               }
             } catch (e) {
               console.error('❌ خطأ في معالجة القائمة:', e.message);
@@ -205,23 +390,18 @@ async function start() {
         else if (msgType === 'videoMessage') body = msg.message.videoMessage?.caption || '';
         if (!body) continue;
 
-        // 🤖 التعلم من الرسائل للذكاء الاصطناعي
+        // تسجيل المجموعة
         if (isGroup) {
-          const { learnFromMessage, generateResponse } = await import('./lib/ai.mjs');
-          learnFromMessage(sender, pushName, body, from);
-          
-          // توليد رد ذكي من فاطمة
-          const aiResponse = await generateResponse({ body }, from, sender, pushName);
-          if (aiResponse) {
-            await delay(1000 + Math.random() * 2000);
-            await sock.sendMessage(from, { text: aiResponse });
+          db.groups = db.groups || {};
+          if (!db.groups[from]) {
+            db.groups[from] = { warnings: {}, settings: {} };
           }
         }
 
         const isCommand = body.startsWith(prefix);
         
         // أمر عرض المينو الرئيسي
-        if (body === `${prefix}menu` || body === '.menu') {
+        if (body === `${prefix}menu` || body === `${prefix}القائمة` || body === `${prefix}اوامر`) {
           await sendMainMenu(from);
           continue;
         }
@@ -230,10 +410,20 @@ async function start() {
           const fullCmd = body.slice(prefix.length).trim();
           const [cmd, ...args] = fullCmd.split(/\s+/);
           const text = args.join(' ');
-          const quoted = msg.message.extendedTextMessage?.contextInfo;
+          
+          // استخراج المعلومات من الرسالة المقتبسة
+          const quoted = {
+            mentionedJid: msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [],
+            stanzaId: msg.message.extendedTextMessage?.contextInfo?.stanzaId,
+            participant: msg.message.extendedTextMessage?.contextInfo?.participant
+          };
+          
           db.stats.commands = (db.stats.commands || 0) + 1;
 
-          const ctx = { from, sender, pushName, isGroup, isGroupAdmin, groupMetadata, isOwner, command: cmd.toLowerCase(), args, text, prefix, quoted, msg };
+          const ctx = { 
+            from, sender, pushName, isGroup, isGroupAdmin, groupMetadata, 
+            isOwner, command: cmd.toLowerCase(), args, text, prefix, quoted, msg 
+          };
           await execCmd(sock, msg, ctx);
         }
       } catch (e) { console.error('❌', e.message); }
@@ -247,14 +437,14 @@ async function start() {
 
 console.log(`
 ╭═══════════════════════════════════════════════════════════════❖
-║   🌙 فَــاطِــمَــة بَــوت v12.0
+║   🌙 فَــاطِــمَــة بَــوت v13.0
 ║   ★ المالك: zaza
-║   ★ 🎮 RPG | 🏘️ Village | ⚡ Skills | 👹 Boss
-║   ★ 📜 Quests | 🏰 Clans | 🛒 Market | 🤖 AI
+║   ★ 🎮 RPG | ⚡ Skills | 👹 Boss | 🏰 Clans
+║   ★ 📜 Quests | 🤖 AI | 🗺️ Territories
 ╰═══════════════════════════════════════════════════════════════❖
 `);
 
-initAI().then(() => loadPlugins()).then(p => { plugins = p; start(); });
+loadPlugins().then(p => { plugins = p; start(); });
 
 process.on('uncaughtException', (e) => {
   if (!String(e.message).includes('Bad MAC')) console.error('❌', e.message);

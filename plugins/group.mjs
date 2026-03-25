@@ -1,326 +1,399 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 👥 أوامر المجموعات - فاطمة بوت v12.0
+// 👥 أوامر الإدارة والمجموعات - فاطمة بوت v13.0
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getDatabase, saveDatabase } from '../lib/database.mjs';
 
 export default {
-  name: 'Groups',
+  name: 'Admin',
   commands: [
-    'الجميع', 'منشن', 'tagall',
-    'المشرفين', 'admins',
-    'معلومات', 'infogp', 'معلومات_الجروب',
-    'رابط', 'link',
-    'فتح', 'open',
-    'إغلاق', 'close',
+    'منشن', 'tagall',
+    'مخفي', 'hidemention',
+    'إنذار', 'warn',
+    'الإنذارات', 'warnings',
+    'عفو', 'pardon',
     'طرد', 'kick',
     'ترقية', 'promote',
     'تنزيل', 'demote',
-    'تحذير', 'warn',
-    'التحذيرات', 'warnings',
-    'محو', 'clearwarn',
-    'حذف', 'delete', 'del',
-    'تثبيت', 'pin',
+    'حذف', 'delete',
     'القواعد', 'rules',
-    'وضع_قواعد', 'setrules'
+    'وضع_قواعد', 'setrules',
+    'فتح', 'open',
+    'إغلاق', 'close',
+    'تغيير_اسم', 'setname',
+    'تغيير_وصف', 'setdesc'
   ],
 
   async execute(sock, msg, ctx) {
-    const { from, sender, command, args, text, isGroup, prefix, quoted, isGroupAdmin } = ctx;
-    if (!isGroup) return sock.sendMessage(from, { text: '❌ هذا الأمر للمجموعات فقط!' });
-
-    let meta;
-    try {
-      meta = await sock.groupMetadata(from);
-    } catch {
-      return;
+    const { from, sender, command, args, text, prefix, isGroup, isGroupAdmin, groupMetadata, quoted } = ctx;
+    
+    if (!isGroup) {
+      return sock.sendMessage(from, { text: '❌ هذا الأمر يعمل في المجموعات فقط!' });
     }
 
-    const isAdmin = meta.participants.find(p => p.id === sender)?.admin;
-    const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    const isBotAdmin = meta.participants.find(p => p.id === botId)?.admin;
     const db = getDatabase();
-
-    // تهيئة بيانات المجموعة
     if (!db.groups) db.groups = {};
-    if (!db.groups[from]) db.groups[from] = { warnings: {}, rules: '' };
+    if (!db.groups[from]) db.groups[from] = { warnings: {}, settings: {} };
+    
+    const group = db.groups[from];
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // منشن للجميع
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['الجميع', 'منشن', 'tagall'].includes(command)) {
-      if (!isAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-      const mentions = meta.participants.map(p => p.id);
-      const message = text || '👥 للجميع';
-      return sock.sendMessage(from, { text: message, mentions });
-    }
+    // ═════════════════════════════════════════════════════════════════════════
+    // منشن علني
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['منشن', 'tagall'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // قائمة المشرفين
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['المشرفين', 'admins'].includes(command)) {
-      const admins = meta.participants.filter(p => p.admin);
+      const participants = groupMetadata?.participants || [];
+      const mentions = participants.map(p => p.id);
+      const message = text || '📢 منشن عام';
+
       return sock.sendMessage(from, {
-        text: `@
-━─━••❁⊰｢❀｣⊱❁••━─━
-
-👑 • • ✤ المشرفون ✤ • • 👑
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-${admins.map(a => `• @${a.id.split('@')[0]} ${a.admin === 'superadmin' ? '⭐' : ''}`).join('\n')}
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-> \`بــوت :\`
-> _*『 FATIMA 』*_
-━─━••❁⊰｢ ❀｣⊱❁••━─━`,
-        mentions: admins.map(a => a.id)
+        text: `${message}\n\n${participants.map(p => `@${p.id.split('@')[0]}`).join(' ')}`,
+        mentions
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // معلومات المجموعة
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['معلومات', 'infogp', 'معلومات_الجروب'].includes(command)) {
-      const admins = meta.participants.filter(p => p.admin).length;
-      const created = new Date(meta.creation * 1000);
+    // ═════════════════════════════════════════════════════════════════════════
+    // منشن مخفي
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['مخفي', 'hidemention'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const participants = groupMetadata?.participants || [];
+      const mentions = participants.map(p => p.id);
+      const message = text || '📢 منشن مخفي';
 
       return sock.sendMessage(from, {
-        text: `@
-━─━••❁⊰｢❀｣⊱❁••━─━
-
-👥 • • ✤ ${meta.subject} ✤ • • 👥
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-│ 📝 الوصف: ${meta.desc ? meta.desc.substring(0, 100) + '...' : 'لا يوجد'}
-│ 👥 الأعضاء: ${meta.participants.length}
-│ 👑 المشرفين: ${admins}
-│ 📅 الإنشاء: ${created.toLocaleDateString('ar')}
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-> \`بــوت :\`
-> _*『 FATIMA 』*_
-━─━••❁⊰｢ ❀｣⊱❁••━─━`
+        text: message,
+        mentions
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // رابط المجموعة
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['رابط', 'link'].includes(command)) {
-      if (!isBotAdmin) return sock.sendMessage(from, { text: '❌ يجب أن أكون مشرفاً أولاً!' });
-      try {
-        const code = await sock.groupInviteCode(from);
-        return sock.sendMessage(from, { text: `🔗 رابط المجموعة:\nhttps://chat.whatsapp.com/${code}` });
-      } catch {
-        return sock.sendMessage(from, { text: '❌ لا يمكن الحصول على الرابط!' });
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // فتح المجموعة
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['فتح', 'open'].includes(command)) {
-      if (!isAdmin || !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-      await sock.groupSettingUpdate(from, 'not_announcement');
-      return sock.sendMessage(from, { text: '✅ تم فتح المجموعة للجميع!' });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // إغلاق المجموعة
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['إغلاق', 'close'].includes(command)) {
-      if (!isAdmin || !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-      await sock.groupSettingUpdate(from, 'announcement');
-      return sock.sendMessage(from, { text: '✅ تم إغلاق المجموعة! الآن المشرفون فقط يمكنهم الكتابة.' });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // طرد عضو
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['طرد', 'kick'].includes(command)) {
-      if (!isAdmin || !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-      if (!user || user === sender) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
-
-      // التحقق من أن المستخدم ليس مشرفاً
-      const targetAdmin = meta.participants.find(p => p.id === user)?.admin;
-      if (targetAdmin) {
-        return sock.sendMessage(from, { text: '❌ لا يمكن طرد مشرف!' });
+    // ═════════════════════════════════════════════════════════════════════════
+    // إنذار
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['إنذار', 'warn'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
       }
 
-      await sock.groupParticipantsUpdate(from, [user], 'remove');
-      return sock.sendMessage(from, { text: '✅ تم طرد العضو!', mentions: [user] });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ترقية عضو
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['ترقية', 'promote'].includes(command)) {
-      if (!isAdmin || !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
-
-      await sock.groupParticipantsUpdate(from, [user], 'promote');
-      return sock.sendMessage(from, { text: '👑 تمت الترقية!', mentions: [user] });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // تنزيل مشرف
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['تنزيل', 'demote'].includes(command)) {
-      if (!isAdmin || !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
-
-      await sock.groupParticipantsUpdate(from, [user], 'demote');
-      return sock.sendMessage(from, { text: '📉 تم التنزيل!', mentions: [user] });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // تحذير عضو
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['تحذير', 'warn'].includes(command)) {
-      if (!isAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
-
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
-
-      const reason = args.slice(1).join(' ') || 'لا يوجد سبب';
-
-      // تسجيل التحذير
-      if (!db.groups[from].warnings[user]) {
-        db.groups[from].warnings[user] = [];
+      // التحقق من التهدئة (10 دقائق لكل مشرف)
+      const now = Date.now();
+      const lastWarn = group.lastWarnBy?.[sender] || 0;
+      
+      if (now - lastWarn < 10 * 60 * 1000) {
+        const remaining = Math.ceil((10 * 60 * 1000 - (now - lastWarn)) / 60000);
+        return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} دقيقة قبل إنذار جديد` });
       }
 
-      db.groups[from].warnings[user].push({
+      const targetId = quoted?.mentionedJid?.[0];
+      if (!targetId) {
+        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      }
+
+      const reason = args.slice(1).join(' ') || 'لم يُحدد سبب';
+      
+      if (!group.warnings) group.warnings = {};
+      if (!group.warnings[targetId]) group.warnings[targetId] = [];
+      
+      group.warnings[targetId].push({
         reason,
         by: sender,
-        at: Date.now()
+        date: now
       });
 
-      const warnCount = db.groups[from].warnings[user].length;
-      const maxWarns = 3;
-
+      group.lastWarnBy = group.lastWarnBy || {};
+      group.lastWarnBy[sender] = now;
+      
       saveDatabase();
 
-      if (warnCount >= maxWarns) {
-        // طرد تلقائي بعد 3 تحذيرات
-        if (isBotAdmin) {
-          await sock.groupParticipantsUpdate(from, [user], 'remove');
-          db.groups[from].warnings[user] = [];
+      const warnCount = group.warnings[targetId].length;
+      
+      // طرد تلقائي عند 3 إنذارات
+      if (warnCount >= 3) {
+        try {
+          await sock.groupParticipantsUpdate(from, [targetId], 'remove');
+          delete group.warnings[targetId];
           saveDatabase();
+          
           return sock.sendMessage(from, {
-            text: `⚠️ تحذير ${warnCount}/${maxWarns}!\n\n🚫 تم طرد العضو بسبب تجاوز الحد!`,
-            mentions: [user]
+            text: `🚨 تم طرد @${targetId.split('@')[0]} بسبب 3 إنذارات!`,
+            mentions: [targetId]
           });
+        } catch (e) {
+          // إذا فشل الطرد
         }
       }
 
       return sock.sendMessage(from, {
-        text: `⚠️ تحذير ${warnCount}/${maxWarns}\n\n👤 المستخدم: @${user.split('@')[0]}\n📝 السبب: ${reason}\n\n⚠️ بعد 3 تحذيرات سيُطرد تلقائياً!`,
-        mentions: [user]
+        text: `⚠️ إنذار لـ @${targetId.split('@')[0]}
+
+📝 السبب: ${reason}
+📊 عدد الإنذارات: ${warnCount}/3`,
+        mentions: [targetId]
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // عرض التحذيرات
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['التحذيرات', 'warnings'].includes(command)) {
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net') || sender;
-
-      const warnings = db.groups[from].warnings[user] || [];
+    // ═════════════════════════════════════════════════════════════════════════
+    // الإنذارات
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['الإنذارات', 'warnings'].includes(command)) {
+      const targetId = quoted?.mentionedJid?.[0] || sender;
+      const warnings = group.warnings?.[targetId] || [];
 
       if (warnings.length === 0) {
-        return sock.sendMessage(from, {
-          text: `✅ لا توجد تحذيرات!\n\n👤 @${user.split('@')[0]}`,
-          mentions: [user]
-        });
+        return sock.sendMessage(from, { text: '✅ لا توجد إنذارات!' });
       }
 
-      let msg = `⚠️ التحذيرات (${warnings.length}/3):\n\n`;
-      warnings.forEach((w, i) => {
-        const date = new Date(w.at).toLocaleDateString('ar');
-        msg += `${i + 1}. ${w.reason}\n   📅 ${date}\n\n`;
-      });
+      const list = warnings.map((w, i) => 
+        `${i + 1}. ${w.reason}\n   📅 <t:${Math.floor(w.date / 1000)}:R>`
+      ).join('\n\n');
 
-      return sock.sendMessage(from, { text: msg, mentions: [user] });
+      return sock.sendMessage(from, {
+        text: `⚠️ الإنذارات (@${targetId.split('@')[0]}):
+
+${list}
+
+📊 المجموع: ${warnings.length}/3`,
+        mentions: [targetId]
+      });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // محو التحذيرات
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['محو', 'clearwarn'].includes(command)) {
-      if (!isAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
+    // ═════════════════════════════════════════════════════════════════════════
+    // عفو
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['عفو', 'pardon'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
 
-      let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      const targetId = quoted?.mentionedJid?.[0];
+      if (!targetId) {
+        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      }
 
-      db.groups[from].warnings[user] = [];
+      if (!group.warnings?.[targetId]?.length) {
+        return sock.sendMessage(from, { text: '❌ لا يوجد إنذارات لهذا الشخص!' });
+      }
+
+      delete group.warnings[targetId];
       saveDatabase();
 
       return sock.sendMessage(from, {
-        text: `✅ تم محو جميع التحذيرات!\n\n👤 @${user.split('@')[0]}`,
-        mentions: [user]
+        text: `✅ تم مسح جميع إنذارات @${targetId.split('@')[0]}!`,
+        mentions: [targetId]
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // حذف رسالة
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['حذف', 'delete', 'del'].includes(command)) {
-      if (!isAdmin && !isBotAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
+    // ═════════════════════════════════════════════════════════════════════════
+    // طرد
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['طرد', 'kick'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
 
-      if (!quoted) return sock.sendMessage(from, { text: '❌ رد على رسالة لحذفها!' });
+      const targetId = quoted?.mentionedJid?.[0];
+      if (!targetId) {
+        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      }
 
       try {
-        await sock.sendMessage(from, { delete: quoted.key });
-      } catch {
-        return sock.sendMessage(from, { text: '❌ لا يمكن حذف الرسالة!' });
+        await sock.groupParticipantsUpdate(from, [targetId], 'remove');
+        return sock.sendMessage(from, {
+          text: `✅ تم طرد @${targetId.split('@')[0]}`,
+          mentions: [targetId]
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل في الطرد! قد لا أملك الصلاحية.' });
       }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // وضع القواعد
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
+    // ترقية
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['ترقية', 'promote'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const targetId = quoted?.mentionedJid?.[0];
+      if (!targetId) {
+        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      }
+
+      try {
+        await sock.groupParticipantsUpdate(from, [targetId], 'promote');
+        return sock.sendMessage(from, {
+          text: `✅ تم ترقية @${targetId.split('@')[0]} إلى مشرف`,
+          mentions: [targetId]
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل في الترقية!' });
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // تنزيل
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['تنزيل', 'demote'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const targetId = quoted?.mentionedJid?.[0];
+      if (!targetId) {
+        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      }
+
+      try {
+        await sock.groupParticipantsUpdate(from, [targetId], 'demote');
+        return sock.sendMessage(from, {
+          text: `✅ تم تنزيل @${targetId.split('@')[0]} إلى عضو`,
+          mentions: [targetId]
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل في التنزيل!' });
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // حذف رسالة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['حذف', 'delete'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const quotedMsg = quoted?.stanzaId;
+      const quotedParticipant = quoted?.participant;
+
+      if (!quotedMsg) {
+        return sock.sendMessage(from, { text: '❌ رد على رسالة لحذفها!' });
+      }
+
+      try {
+        await sock.sendMessage(from, {
+          delete: {
+            remoteJid: from,
+            fromMe: false,
+            id: quotedMsg,
+            participant: quotedParticipant
+          }
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل في الحذف!' });
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // القواعد
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['القواعد', 'rules'].includes(command)) {
+      const rules = group.settings?.rules || '❌ لم يتم تعيين قواعد بعد!';
+      
+      return sock.sendMessage(from, {
+        text: `📋 قواعد المجموعة:
+
+${rules}
+
+💡 ${prefix}وضع_قواعد <القواعد> لتعيينها`
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // وضع قواعد
+    // ═════════════════════════════════════════════════════════════════════════
     if (['وضع_قواعد', 'setrules'].includes(command)) {
-      if (!isAdmin) return sock.sendMessage(from, { text: '❌ للمشرفين فقط!' });
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
 
-      const rules = args.join(' ');
-      if (!rules) return sock.sendMessage(from, { text: '❌ اكتب القواعد!' });
+      const rules = text;
+      if (!rules) {
+        return sock.sendMessage(from, { text: '❌ اكتب القواعد!' });
+      }
 
-      db.groups[from].rules = rules;
+      group.settings = group.settings || {};
+      group.settings.rules = rules;
       saveDatabase();
 
-      return sock.sendMessage(from, { text: '✅ تم حفظ القواعد!' });
+      return sock.sendMessage(from, { text: '✅ تم تعيين القواعد!' });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // عرض القواعد
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['القواعد', 'rules'].includes(command)) {
-      const rules = db.groups[from].rules;
-
-      if (!rules) {
-        return sock.sendMessage(from, { text: '❌ لم يتم وضع قواعد بعد!\n💡 المشرف يمكنه استخدام .وضع_قواعد <القواعد>' });
+    // ═════════════════════════════════════════════════════════════════════════
+    // فتح/إغلاق المجموعة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['فتح', 'open'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
       }
 
-      return sock.sendMessage(from, {
-        text: `@
-━─━••❁⊰｢❀｣⊱❁••━─━
+      try {
+        await sock.groupSettingUpdate(from, 'not_announcement');
+        return sock.sendMessage(from, { text: '✅ تم فتح المجموعة!' });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
+    }
 
-📜 • • ✤ قواعد المجموعة ✤ • • 📜
+    if (['إغلاق', 'close'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
 
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-${rules}
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+      try {
+        await sock.groupSettingUpdate(from, 'announcement');
+        return sock.sendMessage(from, { text: '✅ تم إغلاق المجموعة!' });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
+    }
 
-> \`بــوت :\`
-> _*『 FATIMA 』*_
-━─━••❁⊰｢ ❀｣⊱❁••━─━`
-      });
+    // ═════════════════════════════════════════════════════════════════════════
+    // تغيير اسم المجموعة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['تغيير_اسم', 'setname'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const name = text;
+      if (!name) {
+        return sock.sendMessage(from, { text: '❌ اكتب الاسم الجديد!' });
+      }
+
+      try {
+        await sock.groupUpdateSubject(from, name);
+        return sock.sendMessage(from, { text: '✅ تم تغيير الاسم!' });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // تغيير وصف المجموعة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['تغيير_وصف', 'setdesc'].includes(command)) {
+      if (!isGroupAdmin) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
+      }
+
+      const desc = text;
+      if (!desc) {
+        return sock.sendMessage(from, { text: '❌ اكتب الوصف الجديد!' });
+      }
+
+      try {
+        await sock.groupUpdateDescription(from, desc);
+        return sock.sendMessage(from, { text: '✅ تم تغيير الوصف!' });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
     }
   }
 };
