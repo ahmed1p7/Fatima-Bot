@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🌙 فاطمة بوت - النسخة المتطورة v11.0 مع الأنظمة الجديدة
+// 🌙 فاطمة بوت - النسخة المتطورة v12.0 مع الأنظمة الجديدة
+// يتضمن: نظام الأقاليم، الزعماء الديناميكي، المهام المجدولة
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, delay, getContentType } from '@whiskeysockets/baileys';
@@ -106,6 +107,9 @@ async function start() {
     if (connection === 'open') {
       console.log('\n✅ فاطمة بوت جاهزة! 🌙');
       console.log('🔌 Plugins: ' + plugins.length);
+      
+      // تهيئة نظام المهام المجدولة
+      initScheduler(sock);
     }
   });
 
@@ -230,6 +234,8 @@ console.log(`
 ║   ★ 📜 Quests | 🏰 Clans | 🛒 Market | 🤖 AI
 ╰═══════════════════════════════════════════════════════════════❖
 `);
+
+import { initScheduler } from './lib/scheduler.mjs';
 
 initAI().then(() => loadPlugins()).then(p => { plugins = p; start(); });
 
