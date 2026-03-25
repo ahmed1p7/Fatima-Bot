@@ -168,10 +168,10 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
-      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
-      const isLeader = clan.leader === sender || 
-                       clan.leader === sender.split('@')[0] || 
-                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
       
       if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
@@ -234,10 +234,10 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
       
-      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
-      const isLeader = clan.leader === sender || 
-                       clan.leader === sender.split('@')[0] || 
-                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
       
       if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
@@ -282,10 +282,10 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
       
-      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
-      const isLeader = clan.leader === sender || 
-                       clan.leader === sender.split('@')[0] || 
-                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
       
       if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
