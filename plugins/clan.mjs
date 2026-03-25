@@ -444,9 +444,18 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
+
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+
       if (clan.leader !== sender) {
         return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
       }
+      main
 
       // إذا لم يحدد كلان، عرض القائمة
       if (!args[0]) {
@@ -492,17 +501,90 @@ export default {
 💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب
 ⏰ المدة: 30 دقيقة
 
+
+⏰ ينتظر موافقة قائد ${result.targetName} (5 دقائق)` });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // التحديات المعلقة
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['التحديات', 'challenges'].includes(command)) {
+      const challenges = getPendingChallenges(from);
+      if (challenges.length === 0) return sock.sendMessage(from, { text: '✅ لا توجد تحديات معلقة!' });
+
+      const list = challenges.map(c =>
+        `⚔️ ${c.challengerName} يتحداك!\n💰 الجائزة: ${c.prizePool.toLocaleString()}\n🆔 ${c.id}`
+      ).join('\n\n');
+
+      return sock.sendMessage(from, { text: `📜 التحديات المعلقة:\n\n${list}\n\n✅ ${prefix}قبول_التحدي <الرقم>\n❌ ${prefix}رفض_التحدي <الرقم>` });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // قبول التحدي
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['قبول_التحدي', 'accept'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+      
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+
+      const challengeId = args[0];
+      if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!\n💡 استخدم: .قبول_التحدي war_XXXXXXXXXXX' });
+
+      // معالجة معرف التحدي - قد يأتي بصيغ مختلفة
+      let fullChallengeId = challengeId;
+      if (!challengeId.startsWith('war_')) {
+        // إذا كان المستخدم أدخل فقط الأرقام، نحاول البحث عن تحدي يطابقها
+        const challenges = getPendingChallenges(from);
+        const found = challenges.find(c => c.id.endsWith(challengeId) || c.id === challengeId);
+        if (found) {
+          fullChallengeId = found.id;
+        } else {
+          // محاولة إنشاء المعرف الكامل
+          fullChallengeId = `war_${challengeId.replace('war_', '')}`;
+        }
+      }
+
+      const result = await acceptChallenge(fullChallengeId, sender, sock);
+      if (!result.success) return sock.sendMessage(from, { text: result.message });
+
+      // إرسال إعلان للحرب
+      const warMsg = formatWarForChannel(result.war);
+      // يمكن إرسال للقناة هنا
+
 🎯 استخدموا:
 ${prefix}هجوم_حرب للهجوم!`
         });
       } catch {}
+ main
 
       return sock.sendMessage(from, {
         text: `⚔️ تم إرسال تحدي!
 
 🏰 ${result.challengerName} VS 🏰 ${result.targetName}
 
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // رفض التحدي
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['رفض_التحدي', 'reject'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+      
+      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
+      const senderNum = sender.replace('@s.whatsapp.net', '');
+      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+      const isLeader = senderNum === leaderNum;
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+
 💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب
+ main
 
 ⏰ المدة: 30 دقيقة
 
