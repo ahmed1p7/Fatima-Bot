@@ -168,7 +168,12 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
-      if (clan.leader !== sender) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
+      const isLeader = clan.leader === sender || 
+                       clan.leader === sender.split('@')[0] || 
+                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
       // إذا لم يحدد كلان، عرض القائمة
       if (!args[0]) {
@@ -228,7 +233,13 @@ export default {
     if (['قبول_التحدي', 'accept'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
-      if (clan.leader !== sender) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+      
+      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
+      const isLeader = clan.leader === sender || 
+                       clan.leader === sender.split('@')[0] || 
+                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
       const challengeId = args[0];
       if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!\n💡 استخدم: .قبول_التحدي war_XXXXXXXXXXX' });
@@ -270,7 +281,13 @@ export default {
     if (['رفض_التحدي', 'reject'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
-      if (clan.leader !== sender) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+      
+      // التحقق من أن المستخدم هو القائد (مع معالجة صيغة الرقم)
+      const isLeader = clan.leader === sender || 
+                       clan.leader === sender.split('@')[0] || 
+                       clan.leader?.split('@')[0] === sender.split('@')[0];
+      
+      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
       const challengeId = args[0];
       if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!' });

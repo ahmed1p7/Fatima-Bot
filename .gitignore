@@ -1,1 +1,4 @@
-Nothing should be ignored based on the provided file changes. The changes only include source code files (.mjs) and no build artifacts, dependencies, or temporary files that would require gitignore rules.
+```
+node_modules/
+package-lock.json
+```
