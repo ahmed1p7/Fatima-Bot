@@ -1,12 +1,16 @@
 {
   "users": {},
   "settings": {
-    "prefix": "."
+    "prefix": ".",
+    "language": "ar",
+    "maintenance": false
   },
   "stats": {
     "commands": 0,
     "messages": 0,
-    "startTime": 1774372302690
+    "startTime": 1774462025174,
+    "totalPlayers": 0,
+    "totalClans": 0
   },
-  "version": 12
+  "version": 15
 }

@@ -1,24 +1,265 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 👹 أوامر الزعماء والقتال الجماعي
+// 👹 أوامر الزعماء المحسنة - فاطمة بوت v13.0
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
-import { updateQuestProgress } from '../lib/quests.mjs';
-import { 
-  BOSSES, spawnRandomBoss, spawnBoss, attackBoss, registerForBoss,
-  getActiveBoss, formatBossAnnouncement, formatBossStatus, formatBattleResult,
-  getPlayerBossRewards
-} from '../lib/boss.mjs';
+import { healthBar } from '../lib/rpg.mjs';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📋 قائمة الزعماء
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const BOSSES = [
+  { id: 'kazaka', name: 'كاساكا', emoji: '🐍', type: 'هجمات برية', baseHp: 5000, atk: 300, def: 150, rewards: { gold: 1000, xp: 500 } },
+  { id: 'swamp_king', name: 'ملك المستنقعات', emoji: '🐊', type: 'هجمات برية', baseHp: 8000, atk: 400, def: 300, rewards: { gold: 2000, xp: 800 } },
+  { id: 'orc_leader', name: 'زعيم الأورك', emoji: '👹', type: 'هجمات برية', baseHp: 6000, atk: 350, def: 200, rewards: { gold: 1500, xp: 600 } },
+  { id: 'beru', name: 'بيرو', emoji: '🐜', type: 'طائر', baseHp: 7000, atk: 450, def: 180, rewards: { gold: 2500, xp: 1000 } },
+  { id: 'igrit', name: 'إيغريس', emoji: '⚔️', type: 'أسطوري', baseHp: 15000, atk: 600, def: 400, rewards: { gold: 5000, xp: 2000 } },
+  { id: 'antares', name: 'أنتاريس', emoji: '🐉', type: 'أسطوري', baseHp: 30000, atk: 1000, def: 800, rewards: { gold: 15000, xp: 5000 } }
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 دوال مساعدة
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getActiveBoss(groupId = null) {
+  const data = getRpgData();
+  if (!data.activeBoss) return null;
+  if (groupId && data.activeBoss.group !== groupId) return null;
+  return data.activeBoss;
+}
+
+function spawnBossForGroup(groupId, participants = []) {
+  const data = getRpgData();
+  
+  // اختيار زعيم عشوائي
+  const boss = BOSSES[Math.floor(Math.random() * BOSSES.length)];
+  
+  // حساب المستوى بناءً على المشاركين
+  let avgLevel = 10;
+  if (participants.length > 0) {
+    const totalLevel = participants.reduce((sum, p) => sum + (p.level || 1), 0);
+    avgLevel = Math.floor(totalLevel / participants.length);
+  }
+  
+  // إنشاء الزعيم
+  const bossInstance = {
+    id: `boss_${Date.now()}`,
+    bossId: boss.id,
+    name: boss.name,
+    emoji: boss.emoji,
+    type: boss.type,
+    level: avgLevel,
+    baseHp: Math.floor(boss.baseHp * (1 + avgLevel * 0.05)),
+    currentHp: Math.floor(boss.baseHp * (1 + avgLevel * 0.05)),
+    atk: Math.floor(boss.atk * (1 + avgLevel * 0.03)),
+    def: Math.floor(boss.def * (1 + avgLevel * 0.02)),
+    status: 'registration',
+    group: groupId,
+    registeredPlayers: [],
+    playerDamage: {},
+    rewards: boss.rewards,
+    spawnedAt: Date.now(),
+    registrationEnds: Date.now() + 5 * 60 * 1000 // 5 دقائق
+  };
+  
+  data.activeBoss = bossInstance;
+  saveDatabase();
+  
+  return bossInstance;
+}
+
+function registerPlayerForBoss(player, boss) {
+  if (!boss || boss.status !== 'registration') {
+    return { success: false, message: '❌ لا يوجد زعيم متاح للتسجيل!' };
+  }
+  
+  if (boss.registeredPlayers.includes(player.id)) {
+    return { success: false, message: '❅ أنت مسجل بالفعل!' };
+  }
+  
+  if ((player.stamina || 0) < 1) {
+    return { success: false, message: '❌ تحتاج نقطة طاقة واحدة!' };
+  }
+  
+  player.stamina--;
+  boss.registeredPlayers.push(player.id);
+  boss.playerDamage[player.id] = 0;
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    message: `✅ تم تسجيلك في معركة ${boss.emoji} ${boss.name}!\n👥 المشاركين: ${boss.registeredPlayers.length}`
+  };
+}
+
+function playerAttackBoss(player, boss) {
+  if (!boss || boss.status !== 'active') {
+    return { success: false, message: '❌ لا توجد معركة نشطة!' };
+  }
+  
+  if (!boss.registeredPlayers.includes(player.id)) {
+    return { success: false, message: '❌ غير مسجل في المعركة!' };
+  }
+  
+  if (player.hp <= 0) {
+    return { success: false, message: '💀 لقد مت! لا يمكنك القتال!' };
+  }
+  
+  // التهدئة 10 ثواني
+  const now = Date.now();
+  const lastAttack = player.lastBossAttack || 0;
+  if (now - lastAttack < 10000) {
+    const remaining = Math.ceil((10000 - (now - lastAttack)) / 1000);
+    return { success: false, message: `⏰ انتظر ${remaining} ثانية!` };
+  }
+  
+  player.lastBossAttack = now;
+  
+  // حساب الضرر
+  let damage = player.atk;
+  if (player.equippedWeapon) damage += player.equippedWeapon.atk || 0;
+  if (player.class === 'ساحر') damage += player.mag * 0.5;
+  
+  // ضربة حرجة
+  const isCrit = Math.random() < (player.critRate || 0.05);
+  if (isCrit) damage *= 1.5;
+  
+  // عشوائية
+  damage = Math.floor(damage * (0.8 + Math.random() * 0.4));
+  
+  // تطبيق الضرر
+  boss.currentHp = Math.max(0, boss.currentHp - damage);
+  boss.playerDamage[player.id] = (boss.playerDamage[player.id] || 0) + damage;
+  
+  // ضرر الزعيم
+  const bossDamage = Math.max(1, boss.atk - player.def);
+  player.hp = Math.max(0, player.hp - bossDamage);
+  
+  // تحديث الإحصائيات
+  if (!player.stats) player.stats = {};
+  player.stats.totalBossDamage = (player.stats.totalBossDamage || 0) + damage;
+  
+  // التحقق من الهزيمة
+  if (boss.currentHp <= 0) {
+    return handleBossDefeat(boss);
+  }
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    damage,
+    isCrit,
+    bossDamage,
+    playerHp: player.hp,
+    bossHp: boss.currentHp,
+    bossMaxHp: boss.baseHp
+  };
+}
+
+function handleBossDefeat(boss) {
+  const data = getRpgData();
+  
+  boss.status = 'defeated';
+  
+  // تحديد MVP
+  let mvpId = null;
+  let maxDamage = 0;
+  for (const [id, dmg] of Object.entries(boss.playerDamage || {})) {
+    if (dmg > maxDamage) {
+      maxDamage = dmg;
+      mvpId = id;
+    }
+  }
+  
+  // توزيع الجوائز
+  const results = {
+    boss,
+    mvp: null,
+    participants: []
+  };
+  
+  for (const playerId of boss.registeredPlayers || []) {
+    const player = data.players[playerId];
+    if (!player || player.hp <= 0) continue;
+    
+    const damage = boss.playerDamage[playerId] || 0;
+    const goldReward = Math.floor(boss.rewards.gold * (0.5 + (damage / boss.baseHp) * 0.5));
+    const xpReward = Math.floor(boss.rewards.xp * (0.5 + (damage / boss.baseHp) * 0.5));
+    
+    player.gold = (player.gold || 0) + goldReward;
+    player.xp = (player.xp || 0) + xpReward;
+    
+    if (playerId === mvpId) {
+      player.boxes = player.boxes || { common: 0, rare: 0, epic: 0, legendary: 0 };
+      player.boxes.epic++;
+      results.mvp = { id: playerId, name: player.name, damage: maxDamage };
+    }
+    
+    results.participants.push({
+      id: playerId,
+      name: player.name,
+      damage,
+      gold: goldReward,
+      xp: xpReward
+    });
+  }
+  
+  data.activeBoss = null;
+  saveDatabase();
+  
+  return {
+    success: true,
+    defeated: true,
+    results
+  };
+}
+
+function checkBossStatus(boss) {
+  if (!boss) return null;
+  
+  const now = Date.now();
+  
+  // تحويل من تسجيل لقتال
+  if (boss.status === 'registration' && now >= boss.registrationEnds) {
+    boss.status = 'active';
+    boss.battleEnds = now + 20 * 60 * 1000;
+    
+    // زيادة HP حسب المشاركين
+    const participants = boss.registeredPlayers.length;
+    if (participants > 0) {
+      boss.currentHp = boss.baseHp + (participants * 1000);
+    }
+    
+    saveDatabase();
+    return boss;
+  }
+  
+  // انتهاء المعركة
+  if (boss.status === 'active' && boss.battleEnds && now >= boss.battleEnds) {
+    const data = getRpgData();
+    data.activeBoss = null;
+    saveDatabase();
+    return null;
+  }
+  
+  return boss;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📤 تصدير الأوامر
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export default {
   name: 'Boss',
   commands: [
     'زعيم', 'boss', 'استدعاء_زعيم',
-    'هجوم_زعيم', 'attack_boss', 'هجوم',
-    'مشاركة', 'register_boss', 'قتال_الزعيم',
-    'حالة_زعيم', 'boss_status',
-    'زعماء', 'bosses', 'قائمة_زعماء',
-    'مكافآتي', 'my_rewards'
+    'هجوم_زعيم', 'attackboss', 'هجوم',
+    'مشاركة', 'قتال_الزعيم',
+    'حالة_زعيم', 'bossstatus',
+    'زعماء', 'bosses'
   ],
 
   async execute(sock, msg, ctx) {
@@ -26,11 +267,10 @@ export default {
     const data = getRpgData();
     const player = data.players?.[sender];
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // استدعاء زعيم (للمشرفين أو عشوائي)
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
+    // استدعاء زعيم
+    // ═════════════════════════════════════════════════════════════════════════
     if (['زعيم', 'boss', 'استدعاء_زعيم'].includes(command)) {
-      // التحقق من وجود زعيم نشط
       const existingBoss = getActiveBoss(from);
       if (existingBoss) {
         return sock.sendMessage(from, { 
@@ -38,182 +278,89 @@ export default {
         });
       }
 
-      // جمع المشاركين المحتملين (اللاعبين في المجموعة)
-      const participants = Object.values(data.players || {})
-        .filter(p => p && p.level);
+      const participants = Object.values(data.players || {}).filter(p => p && p.level);
+      const boss = spawnBossForGroup(from, participants);
 
-      // استدعاء زعيم عشوائي
-      const result = spawnRandomBoss(from, participants);
-
-      if (!result.success) {
-        return sock.sendMessage(from, { text: result.message });
-      }
-
-      // إرسال إعلان مع الصورة
-      // formatBossAnnouncement الآن دالة async ترسل الصورة مباشرة إذا توفر sock
-      const announcementText = await formatBossAnnouncement(result.boss, sock, from);
-      
-      // إذا كان النص فارغ، فهذا يعني أن الصورة أُرسلت بالفعل
-      if (announcementText) {
-        return sock.sendMessage(from, { text: announcementText });
-      }
-      
-      return; // الصورة أُرسلت بالفعل
+      return sock.sendMessage(from, {
+        text: formatBossAnnouncement(boss, prefix)
+      });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // التسجيل في قتال الزعيم
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['مشاركة', 'register_boss', 'قتال_الزعيم'].includes(command)) {
-      const player = data.players?.[sender];
+    // ═════════════════════════════════════════════════════════════════════════
+    // التسجيل في المعركة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['مشاركة', 'قتال_الزعيم'].includes(command)) {
       if (!player) {
         return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
       }
 
-      // التحقق من وجود زعيم نشط
-      const boss = getActiveBoss(from);
+      let boss = getActiveBoss(from);
+      boss = checkBossStatus(boss);
+      
       if (!boss) {
-        return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط! استخدم .زعيم لاستدعاء واحد.' });
+        return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط! استخدم .زعيم' });
       }
 
-      // التحقق من حالة التسجيل
       if (boss.status !== 'registration') {
-        return sock.sendMessage(from, { text: '❌ انتهى وقت التسجيل! المعركة جارية الآن.' });
+        return sock.sendMessage(from, { text: '❌ انتهى وقت التسجيل! المعركة جارية.' });
       }
 
-      // التحقق من عدم التسجيل المسبق
-      if (boss.registeredPlayers?.includes(sender)) {
-        return sock.sendMessage(from, { text: '✅ أنت مسجل بالفعل في هذه المعركة!' });
-      }
-
-      // التحقق من الطاقة (نقطة واحدة كرسوم دخول)
-      const staminaCost = 1;
-      const staminaMax = 100 + (player.level * 5);
-      const currentStamina = Math.min(staminaMax, player.stamina + Math.floor((Date.now() - (player.lastStaminaUpdate || Date.now())) / 60000));
-      
-      if (currentStamina < staminaCost) {
-        return sock.sendMessage(from, { text: '❌ طاقة غير كافية! تحتاج نقطة طاقة واحدة للتسجيل.' });
-      }
-
-      // خصم الطاقة
-      player.stamina = currentStamina - staminaCost;
-      player.lastStaminaUpdate = Date.now();
-
-      // تسجيل اللاعب
-      const result = registerForBoss(boss.instanceId, {
-        id: sender,
-        name: pushName,
-        class: player.class,
-        level: player.level
-      });
-
-      if (!result.success) {
-        return sock.sendMessage(from, { text: result.message });
-      }
-
-      saveDatabase();
-
-      return sock.sendMessage(from, { 
-        text: `✅ تم تسجيلك بنجاح!\n\n👥 عدد المشاركين: ${result.participantCount}\n⏰ الوقت المتبقي للتسجيل: ${Math.ceil((boss.registrationEnds - Date.now()) / 60000)} دقيقة\n\nاستعد للمعركة واستخدم .هجوم_زعيم عندما تبدأ!` 
-      });
+      player.id = sender;
+      const result = registerPlayerForBoss(player, boss);
+      return sock.sendMessage(from, { text: result.message });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
     // الهجوم على الزعيم
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['هجوم_زعيم', 'attack_boss', 'هجوم'].includes(command)) {
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['هجوم_زعيم', 'attackboss', 'هجوم'].includes(command)) {
       if (!player) {
-        return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
+        return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
       }
 
-      // التحقق من وجود زعيم نشط
-      const boss = getActiveBoss(from);
+      let boss = getActiveBoss(from);
+      boss = checkBossStatus(boss);
+      
       if (!boss) {
-        return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط! استخدم .زعيم لاستدعاء واحد.' });
+        return sock.sendMessage(from, { text: '❌ لا توجد معركة نشطة!' });
       }
 
-      // التحقق من HP اللاعب
-      if (player.hp < player.maxHp * 0.1) {
-        return sock.sendMessage(from, { text: '❌ صحتك ضعيفة جداً! استخدم .علاج أولاً.' });
+      if (boss.status === 'registration') {
+        const remaining = Math.ceil((boss.registrationEnds - Date.now()) / 60000);
+        return sock.sendMessage(from, { text: `⏰ المعركة تبدأ بعد ${remaining} دقيقة!` });
       }
 
-      // التحقق من وقت التهدئة
-      const now = Date.now();
-      const lastAttack = player.lastBossAttack || 0;
-      const cooldown = 10000; // 10 ثواني
-
-      if (now - lastAttack < cooldown) {
-        const remaining = Math.ceil((cooldown - (now - lastAttack)) / 1000);
-        return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} ثانية!` });
-      }
-
-      player.lastBossAttack = now;
-
-      // تنفيذ الهجوم
-      const result = attackBoss(
-        boss.instanceId,
-        sender,
-        pushName,
-        player.atk,
-        player.mag,
-        player.skills
-      );
+      player.id = sender;
+      const result = playerAttackBoss(player, boss);
 
       if (!result.success) {
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // خصم HP من اللاعب إذا كان هناك هجوم مضاد
-      if (result.counterAttack) {
-        player.hp = Math.max(1, player.hp - result.counterAttack.damage);
-      }
-
-      // تحديث المهام
-      updateQuestProgress(player, 'boss_damage', result.damage);
-
-      // إذا تمت هزيمة الزعيم
       if (result.defeated) {
-        // تحديث إحصائيات اللاعبين
-        for (const [pid, reward] of Object.entries(result.rewards)) {
-          const p = data.players[pid];
-          if (p) {
-            p.xp = (p.xp || 0) + reward.xp;
-            p.gold = (p.gold || 0) + reward.gold;
-            p.stats = p.stats || {};
-            p.stats.bossesDefeated = (p.stats.bossesDefeated || 0) + 1;
-            p.stats.totalBossDamage = (p.stats.totalBossDamage || 0) + reward.damage;
-
-            // تحديث المهام
-            updateQuestProgress(p, 'boss_kill', 1);
-          }
-        }
-
-        saveDatabase();
-
-        // إرسال نتيجة المعركة
-        return sock.sendMessage(from, { text: formatBattleResult(result) });
+        return sock.sendMessage(from, { text: formatBattleResult(result.results) });
       }
 
-      saveDatabase();
+      const hpBar = healthBar(result.bossHp, result.bossMaxHp, 15);
+      let response = `⚔️ هجوم على ${boss.emoji} ${boss.name}!
 
-      // إرسال نتيجة الهجوم
-      let response = `⚔️ هجوم على ${boss.emoji} ${boss.name}!\n\n`;
-      response += `💥 ضررك: ${result.damage.toLocaleString()}`;
-      if (result.isCrit) response += ` 🔥 حرجة!`;
-      response += `\n📊 HP الزعيم: ${result.hpPercent}%`;
+💥 ضررك: ${result.damage.toLocaleString()}${result.isCrit ? ' 🔥 حرجة!' : ''}
+💔 ضرر الزعيم: ${result.bossDamage}
 
-      if (result.counterAttack) {
-        response += `\n\n⚠️ هجوم مضاد: -${result.counterAttack.damage} HP!`;
-      }
+❤️ HP الزعيم: ${result.bossHp.toLocaleString()}/${result.bossMaxHp.toLocaleString()}
+[${hpBar}]
+
+❤️ صحتك: ${result.playerHp}`;
 
       return sock.sendMessage(from, { text: response });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
     // حالة الزعيم
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['حالة_زعيم', 'boss_status'].includes(command)) {
-      const boss = getActiveBoss(from);
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['حالة_زعيم', 'bossstatus'].includes(command)) {
+      let boss = getActiveBoss(from);
+      boss = checkBossStatus(boss);
 
       if (!boss) {
         return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط حالياً!' });
@@ -222,56 +369,140 @@ export default {
       return sock.sendMessage(from, { text: formatBossStatus(boss) });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════════
     // قائمة الزعماء
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['زعماء', 'bosses', 'قائمة_زعماء'].includes(command)) {
-      let msg = `👹 ═══════ قائمة الزعماء ═══════ 👹\n\n`;
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['زعماء', 'bosses'].includes(command)) {
+      let msg = `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+👹 • • ✤ قائمة الزعماء ✤ • • 👹
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+`;
 
       for (const boss of BOSSES) {
-        const diffStars = '⭐'.repeat(
-          boss.level <= 10 ? 1 : boss.level <= 25 ? 2 : boss.level <= 40 ? 3 : 4
-        );
-
-        msg += `${boss.emoji} ${boss.name} ${diffStars}\n`;
-        msg += `   المستوى: ${boss.level} | HP: ${boss.hp.toLocaleString()}\n`;
-        msg += `   مكافأة: ${boss.goldReward.toLocaleString()}💰 ${boss.xpReward.toLocaleString()}XP\n`;
-        msg += `   يتطلب: ${boss.spawnCondition.minPlayers} لاعبين | Lv.${boss.spawnCondition.minTotalLevel} إجمالي\n\n`;
+        const difficulty = boss.baseHp >= 15000 ? '⭐⭐⭐' : boss.baseHp >= 8000 ? '⭐⭐' : '⭐';
+        msg += `${boss.emoji} ${boss.name} ${difficulty}
+   │ ❤️ ${boss.baseHp.toLocaleString()} | ⚔️ ${boss.atk} | 🛡️ ${boss.def}
+   │ 💰 ${boss.rewards.gold.toLocaleString()} | ⭐ ${boss.rewards.xp}
+   
+`;
       }
 
-      msg += `💡 .زعيم - استدعاء زعيم عشوائي`;
+      msg += `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+💡 ${prefix}زعيم - استدعاء زعيم
 
-      return sock.sendMessage(from, { text: msg });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // مكافآت الزعماء
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['مكافآتي', 'my_rewards'].includes(command)) {
-      if (!player) {
-        return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-      }
-
-      const rewards = getPlayerBossRewards(sender);
-
-      if (rewards.length === 0) {
-        return sock.sendMessage(from, { text: '❌ لم تشارك في أي هزيمة لزعماء بعد!' });
-      }
-
-      let msg = `🎁 ═══════ مكافآت الزعماء ═══════ 🎁\n\n`;
-
-      for (const reward of rewards) {
-        const date = new Date(reward.date);
-        msg += `${reward.bossEmoji} ${reward.bossName}\n`;
-        msg += `   ضررك: ${reward.damage.toLocaleString()} (${reward.contribution}%)\n`;
-        msg += `   المكافأة: ${reward.gold}💰 ${reward.xp}XP\n`;
-        if (reward.loot) {
-          msg += `   الغنيمة: ${reward.loot}\n`;
-        }
-        msg += `\n`;
-      }
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`;
 
       return sock.sendMessage(from, { text: msg });
     }
   }
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📝 دوال التنسيق
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function formatBossAnnouncement(boss, prefix) {
+  return `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+${boss.emoji} • • ✤ زعيم ظهر! ✤ • • ${boss.emoji}
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+│ 👹 الاسم: ${boss.name}
+│ 📊 النوع: ${boss.type}
+│ ⭐ المستوى: ${boss.level}
+│ ❤️ HP: ${boss.baseHp.toLocaleString()}
+│ ⚔️ ATK: ${boss.atk} | 🛡️ DEF: ${boss.def}
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+🎁 المكافآت:
+│ 💰 ${boss.rewards.gold.toLocaleString()} ذهب
+│ ⭐ ${boss.rewards.xp.toLocaleString()} XP
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+⏰ التسجيل: 5 دقائق
+💡 ${prefix}مشاركة للتسجيل
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`;
+}
+
+function formatBossStatus(boss) {
+  const hpPercent = Math.floor((boss.currentHp / boss.baseHp) * 100);
+  const hpBar = healthBar(boss.currentHp, boss.baseHp, 15);
+  
+  let text = `${boss.emoji} ═══════ ${boss.name} ═══════ ${boss.emoji}
+
+❤️ HP: ${boss.currentHp.toLocaleString()}/${boss.baseHp.toLocaleString()}
+📊 [${hpBar}] ${hpPercent}%
+
+👥 المشاركين: ${boss.registeredPlayers?.length || 0}
+📊 الحالة: ${boss.status === 'registration' ? '📝 تسجيل' : '⚔️ قتال'}
+`;
+
+  if (boss.status === 'registration') {
+    const remaining = Math.max(0, boss.registrationEnds - Date.now());
+    text += `⏱️ متبقي: ${Math.ceil(remaining / 60000)} دقيقة\n`;
+  }
+
+  // أفضل الضرار
+  if (boss.playerDamage && Object.keys(boss.playerDamage).length > 0) {
+    const sorted = Object.entries(boss.playerDamage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+    
+    text += `\n📊 أعلى ضرر:\n`;
+    const data = getRpgData();
+    for (const [id, dmg] of sorted) {
+      const p = data.players?.[id];
+      text += `│ ${p?.name || 'غير معروف'}: ${dmg.toLocaleString()}\n`;
+    }
+  }
+
+  return text;
+}
+
+function formatBattleResult(results) {
+  let text = `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+🏆 • • ✤ انتصار! ✤ • • 🏆
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+│ ${results.boss?.emoji || '👹'} ${results.boss?.name || 'الزعيم'} هُزم!
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+`;
+
+  if (results.mvp) {
+    text += `⭐ MVP: ${results.mvp.name}
+💥 الضرر: ${results.mvp.damage?.toLocaleString() || 0}
+
+`;
+  }
+
+  text += `👥 المشاركين:
+`;
+  for (const p of results.participants || []) {
+    text += `│ ${p.name}: ${p.damage?.toLocaleString() || 0} ضرر
+│   💰 +${p.gold || 0} | ⭐ +${p.xp || 0}
+`;
+  }
+
+  text += `
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`;
+
+  return text;
+}
+
+// تصدير البيانات
+export { BOSSES };

@@ -1,1 +1,47 @@
-Nothing should be ignored based on the provided file changes. The only modified file is 'plugins/clan.mjs', which is a source code file (.mjs) and should not be added to .gitignore. No build artifacts, dependencies, or temporary files are present in the changes.
+
+# Nothing should be ignored based on the provided file changes. The only modified file is 'plugins/clan.mjs', which is a source code file (.mjs) and should not be added to .gitignore. No build artifacts, dependencies, or temporary files are present in the changes.
+# =======
+# ═══════════════════════════════════════════════════════════════════════════════
+# .gitignore - فاطمة بوت
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# 📂 قاعدة البيانات (لا ترفعها لـ GitHub!)
+database/database.json
+database/rpg.json
+database/backups/
+*.json.bak
+*_backup.json
+
+# 📦 Node Modules
+node_modules/
+
+# 🔐 الملفات الحساسة
+.env
+.env.local
+*.pem
+*.key
+auth_info/
+session/
+
+# 🗂️ ملفات مؤقتة
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 💻 IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 📱 Baileys Sessions
+*.session
+*.session-journal
+multi_file/
+
+# 🔄 ملفات التحميل
+downloads/
+tmp/
+temp/
+ main

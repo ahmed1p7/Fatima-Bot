@@ -4,7 +4,13 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { saveDatabase, getDatabase, getRpgData } from '../lib/database.mjs';
+import { saveDatabase, getDatabase, getRpgData, forceMigrateAll, getPlayerSchema, getClanSchema, addFieldToAllPlayers, removeFieldFromAllPlayers } from '../lib/database.mjs';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const execAsync = promisify(exec);
 
 const banned = new Set();
@@ -29,7 +35,15 @@ export default {
     'حذف_لاعب', 'deleteplayer',
     'وضع_بريفكس', 'setprefix',
     'وضع_اسم', 'setname',
-    'حالة', 'status'
+    'حالة', 'status',
+    // أوامر قاعدة البيانات الجديدة
+    'ترقية', 'migrate',
+    'مخطط', 'schema',
+    'إضافة_حقل', 'addfield',
+    'حذف_حقل', 'removefield',
+    'نسخة_احتياطية', 'backup',
+    'استعادة', 'restore',
+    'معلومات_قاعدة', 'dbinfo'
   ],
 
   async execute(sock, msg, ctx) {
@@ -427,6 +441,257 @@ export default {
 📛 الاسم: ${db.settings?.botName || 'FATIMA'}
 🚫 المحظورين: ${[...banned, ...(db.banned || [])].length}
 ✅ الحالة: نشط`
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ترقية قاعدة البيانات (Migration)
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['ترقية', 'migrate'].includes(command)) {
+      await sock.sendMessage(from, { text: '🔄 جاري ترقية قاعدة البيانات...' });
+      
+      try {
+        forceMigrateAll();
+        return sock.sendMessage(from, { 
+          text: `✅ تم ترقية قاعدة البيانات بنجاح!
+
+📊 الإحصائيات:
+│ 👥 اللاعبين: ${Object.keys(rpgData.players || {}).length}
+│ 🏰 الكلانات: ${Object.keys(rpgData.clans || {}).length}
+│ 📌 الإصدار: ${rpgData.version}` 
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ خطأ في الترقية: ' + e.message });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // عرض مخطط اللاعب/الكلان
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['مخطط', 'schema'].includes(command)) {
+      const type = args[0]?.toLowerCase();
+      
+      if (type === 'clan' || type === 'كلان') {
+        const schema = getClanSchema();
+        const fields = Object.entries(schema)
+          .map(([k, v]) => `│ ${k}: ${Array.isArray(v) ? '[]' : typeof v}`)
+          .join('\n');
+        
+        return sock.sendMessage(from, {
+          text: `🏰 مخطط الكلان:\n\n${fields}`
+        });
+      }
+      
+      const schema = getPlayerSchema();
+      const mainFields = Object.entries(schema)
+        .filter(([k, v]) => typeof v !== 'object' || Array.isArray(v))
+        .map(([k, v]) => `│ ${k}: ${Array.isArray(v) ? '[]' : typeof v}`)
+        .join('\n');
+      
+      const statsFields = Object.entries(schema.stats || {})
+        .map(([k, v]) => `│   ${k}: ${typeof v}`)
+        .join('\n');
+      
+      return sock.sendMessage(from, {
+        text: `🎮 مخطط اللاعب:\n\n📋 الحقول الرئيسية:\n${mainFields}\n\n📊 الإحصائيات:\n${statsFields}\n\n💡 استخدم ${prefix}مخطط كلان لمخطط الكلانات`
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // إضافة حقل جديد لجميع اللاعبين
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['إضافة_حقل', 'addfield'].includes(command)) {
+      const fieldPath = args[0];
+      const defaultValue = args.slice(1).join(' ');
+      
+      if (!fieldPath) {
+        return sock.sendMessage(from, {
+          text: `❌ الصيغة: ${prefix}إضافة_حقل <مسار_الحقل> <القيمة_الافتراضية>\n\nمثال:\n${prefix}إضافة_حقل gems 0\n${prefix}إضافة_حقل stats.newStat 100`
+        });
+      }
+      
+      try {
+        let parsedValue = defaultValue;
+        // محاولة تحويل القيمة
+        if (defaultValue === 'true') parsedValue = true;
+        else if (defaultValue === 'false') parsedValue = false;
+        else if (!isNaN(defaultValue) && defaultValue !== '') parsedValue = Number(defaultValue);
+        else if (defaultValue === '[]') parsedValue = [];
+        else if (defaultValue === '{}') parsedValue = {};
+        
+        addFieldToAllPlayers(fieldPath, parsedValue);
+        return sock.sendMessage(from, { 
+          text: `✅ تم إضافة الحقل \`${fieldPath}\` بقيمة \`${parsedValue}\` لجميع اللاعبين!` 
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // حذف حقل من جميع اللاعبين
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['حذف_حقل', 'removefield'].includes(command)) {
+      const fieldPath = args[0];
+      
+      if (!fieldPath) {
+        return sock.sendMessage(from, {
+          text: `❌ الصيغة: ${prefix}حذف_حقل <مسار_الحقل>\n\nمثال:\n${prefix}حذف_حقل oldField\n${prefix}حذف_حقل stats.oldStat`
+        });
+      }
+      
+      try {
+        removeFieldFromAllPlayers(fieldPath);
+        return sock.sendMessage(from, { 
+          text: `✅ تم حذف الحقل \`${fieldPath}\` من جميع اللاعبين!` 
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // نسخة احتياطية
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['نسخة_احتياطية', 'backup'].includes(command)) {
+      const DB_DIR = path.join(__dirname, '..', 'database');
+      const BACKUP_DIR = path.join(DB_DIR, 'backups');
+      
+      try {
+        if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        
+        const date = new Date();
+        const timestamp = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}_${String(date.getHours()).padStart(2,'0')}-${String(date.getMinutes()).padStart(2,'0')}`;
+        
+        const dbFile = path.join(DB_DIR, 'database.json');
+        const rpgFile = path.join(DB_DIR, 'rpg.json');
+        
+        if (fs.existsSync(dbFile)) {
+          fs.copyFileSync(dbFile, path.join(BACKUP_DIR, `database_${timestamp}.json`));
+        }
+        if (fs.existsSync(rpgFile)) {
+          fs.copyFileSync(rpgFile, path.join(BACKUP_DIR, `rpg_${timestamp}.json`));
+        }
+        
+        return sock.sendMessage(from, {
+          text: `✅ تم إنشاء نسخة احتياطية!\n\n📁 الملفات:\n│ database_${timestamp}.json\n│ rpg_${timestamp}.json\n\n📂 المسار: database/backups/`
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // استعادة من نسخة احتياطية
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['استعادة', 'restore'].includes(command)) {
+      const backupName = args[0];
+      
+      if (!backupName) {
+        // عرض النسخ المتاحة
+        const BACKUP_DIR = path.join(__dirname, '..', 'database', 'backups');
+        
+        if (!fs.existsSync(BACKUP_DIR)) {
+          return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
+        }
+        
+        const files = fs.readdirSync(BACKUP_DIR)
+          .filter(f => f.endsWith('.json'))
+          .sort()
+          .reverse()
+          .slice(0, 10);
+        
+        if (files.length === 0) {
+          return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
+        }
+        
+        const list = files.map(f => `│ ${f}`).join('\n');
+        return sock.sendMessage(from, {
+          text: `📦 النسخ الاحتياطية المتاحة:\n\n${list}\n\n💡 استخدم: ${prefix}استعادة <اسم_الملف>`
+        });
+      }
+      
+      try {
+        const DB_DIR = path.join(__dirname, '..', 'database');
+        const BACKUP_DIR = path.join(DB_DIR, 'backups');
+        const backupFile = path.join(BACKUP_DIR, backupName);
+        
+        if (!fs.existsSync(backupFile)) {
+          return sock.sendMessage(from, { text: '❌ الملف غير موجود!' });
+        }
+        
+        // تحديد نوع الملف
+        if (backupName.startsWith('database_')) {
+          fs.copyFileSync(backupFile, path.join(DB_DIR, 'database.json'));
+        } else if (backupName.startsWith('rpg_')) {
+          fs.copyFileSync(backupFile, path.join(DB_DIR, 'rpg.json'));
+        }
+        
+        return sock.sendMessage(from, { 
+          text: `✅ تم استعادة ${backupName}!\n\n⚠️ أعد تشغيل البوت لتطبيق التغييرات.\n${prefix}إعادة` 
+        });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // معلومات قاعدة البيانات
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (['معلومات_قاعدة', 'dbinfo'].includes(command)) {
+      const DB_DIR = path.join(__dirname, '..', 'database');
+      const dbFile = path.join(DB_DIR, 'database.json');
+      const rpgFile = path.join(DB_DIR, 'rpg.json');
+      
+      const getFileInfo = (filePath) => {
+        if (!fs.existsSync(filePath)) return 'غير موجود';
+        const stats = fs.statSync(filePath);
+        return `${(stats.size / 1024).toFixed(2)} KB`;
+      };
+      
+      const playersCount = Object.keys(rpgData.players || {}).length;
+      const clansCount = Object.keys(rpgData.clans || {}).length;
+      
+      // حساب إحصائيات إضافية
+      let totalGold = 0;
+      let totalLevel = 0;
+      let maxLevel = 0;
+      
+      for (const p of Object.values(rpgData.players || {})) {
+        totalGold += p.gold || 0;
+        totalLevel += p.level || 1;
+        maxLevel = Math.max(maxLevel, p.level || 1);
+      }
+      
+      const avgLevel = playersCount > 0 ? (totalLevel / playersCount).toFixed(1) : 0;
+      
+      return sock.sendMessage(from, {
+        text: `@
+━─━••❁⊰｢❀｣⊱❁••━─━
+
+📊 • • ✤ معلومات قاعدة البيانات ✤ • • 📊
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+│ 📌 الإصدار: ${rpgData.version}
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+📁 حجم الملفات:
+│ database.json: ${getFileInfo(dbFile)}
+│ rpg.json: ${getFileInfo(rpgFile)}
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+👥 اللاعبين:
+│ 🎮 العدد: ${playersCount}
+│ ⭐ أعلى مستوى: ${maxLevel}
+│ 📊 متوسط المستوى: ${avgLevel}
+│ 💰 إجمالي الذهب: ${totalGold.toLocaleString()}
+
+🏰 الكلانات: ${clansCount}
+
+> \`بــوت :\`
+> _*『 FATIMA 』*_
+━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
     }
   }
