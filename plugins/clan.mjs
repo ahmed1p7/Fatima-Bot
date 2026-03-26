@@ -214,8 +214,8 @@ function getClanBuff(level) {
 
 function isClanLeader(clan, senderId) {
   if (!clan || !senderId) return false;
-  const senderNum = String(senderId).replace('@s.whatsapp.net', '');
-  const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+  const senderNum = String(senderId).split('@')[0];
+  const leaderNum = String(clan.leader || '').split('@')[0];
   return senderNum === leaderNum;
 }
 
@@ -247,10 +247,10 @@ function createClan(groupId, name, leaderId, leaderName) {
     settlement: {
       buildings: {
         castle: { level: 1 },
-        barracks: { level: 1 }, // ثكنات عسكرية
-        archeryRange: { level: 1 }, // ميدان الرماية
-        stable: { level: 1 }, // اسطبل الفرسان
-        magicTower: { level: 1 }, // برج السحر
+        barracks: { level: 1 }, // ثكنات المحارب/فارس
+        mageTower: { level: 1 }, // برج السحر
+        hospital: { level: 1 }, // المشفى
+        watchtower: { level: 1 }, // برج المراقبة للرامي/قاتل
         goldMine: [{ level: 1 }],
         elixirCollector: [{ level: 1 }]
       },
@@ -773,6 +773,7 @@ export default {
     'تحدي', 'challenge',
     'قبول_التحدي', 'accept',
     'رفض_التحدي', 'reject',
+    'مشاركة', 'participate',
     'هجوم_حرب', 'attack', 'هجوم',
     'الحرب', 'war', 'حربي',
     'التحديات', 'challenges',
@@ -1063,6 +1064,57 @@ export default {
       return sock.sendMessage(from, {
         text: `❌ تم رفض تحدي من ${challenge.challengerName}`
       });
+    }
+
+    // المشاركة في الحرب (تسجيل الجنود)
+    if (['مشاركة', 'participate'].includes(command)) {
+      const player = data.players?.[sender];
+      if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      const war = getActiveWar(from);
+      if (!war) return sock.sendMessage(from, { text: '❌ لا توجد حرب نشطة!' });
+
+      // التحقق من فترة التجهيز
+      if (Date.now() < war.prepEndTime) {
+        const soldierCount = parseInt(args[0]) || 10;
+        const maxCapacity = getArmyCapacity(clan.settlement?.buildings?.barracks?.level || 1);
+        
+        if (soldierCount > (player.soldiers || 0)) {
+          return sock.sendMessage(from, { 
+            text: `❌ ليس لديك جنود كافية!\\n📊 جيشك: ${player.soldiers || 0}/${maxCapacity}\\n💡 استخدم ${prefix}تدريب <عدد> لزيادة الجيش` 
+          });
+        }
+
+        // تسجيل المشاركة
+        const isChallenger = war.challengerId === from;
+        const participationList = isChallenger ? war.challengerAttacks : war.targetAttacks;
+        
+        const existingParticipation = participationList?.find(p => p.playerId === sender);
+        if (existingParticipation) {
+          existingParticipation.soldiers = soldierCount;
+        } else {
+          if (isChallenger) {
+            war.challengerAttacks = war.challengerAttacks || [];
+            war.challengerAttacks.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
+          } else {
+            war.targetAttacks = war.targetAttacks || [];
+            war.targetAttacks.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
+          }
+        }
+
+        saveDatabase();
+
+        return sock.sendMessage(from, {
+          text: `✅ تم تسجيل مشاركتك في الحرب!\\n⚔️ عدد الجنود: ${soldierCount}\\n⏰ تبدأ الحرب بعد انتهاء فترة التجهيز`
+        });
+      } else {
+        return sock.sendMessage(from, { 
+          text: `❌ انتهت فترة التجهيز!\\n💡 استخدم ${prefix}هجوم_حرب للمشاركة في القتال الآن` 
+        });
+      }
     }
 
     // الهجوم في الحرب
