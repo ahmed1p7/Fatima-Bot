@@ -353,6 +353,37 @@ function transferClanLeadership(clan, newLeaderId, currentLeaderId) {
   };
 }
 
+function deleteClan(clan, leaderId) {
+  if (!isClanLeader(clan, leaderId)) {
+    return { success: false, message: '❌ فقط قائد الكلان يستطيع حذف الكلان!' };
+  }
+  
+  const data = getRpgData();
+  const clanName = clan.name;
+  const leaderName = clan.leaderName;
+  
+  // حذف الكلان من قاعدة البيانات
+  if (data.clans && data.clans[clan.id]) {
+    delete data.clans[clan.id];
+  }
+  
+  // إزالة مرجع الكلان من جميع الأعضاء
+  if (clan.members) {
+    clan.members.forEach(memberId => {
+      if (data.players && data.players[memberId]) {
+        data.players[memberId].clanId = null;
+      }
+    });
+  }
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    message: `${leaderName}`
+  };
+}
+
 function getAvailableClans(excludeId) {
   const data = getRpgData();
   return Object.entries(data.clans || {})
@@ -781,6 +812,7 @@ export default {
     'التحديات', 'challenges',
     'الكلانات', 'clanslist',
     'نقل_كلان', 'transferclan',
+    'حذف_كلان', 'deleteclan',
     'تدريب', 'train',
     'جيشي', 'myarmy',
     'مبناي', 'mybuildings',
@@ -827,7 +859,7 @@ export default {
 💡 ${prefix}تبرع <مبلغ> - للتبرع
 
 > \`بــوت :\`
-> _*『 FATIMA 』*_
+> _*『 FATIMA 』*__
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
     }
@@ -874,7 +906,7 @@ export default {
 👑 القائد: ${leaderName}
 
 > \`بــوت :\`
-> _*『 FATIMA 』*_
+> _*『 FATIMA 』*__
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
     }
@@ -1213,7 +1245,31 @@ export default {
       }
 
       return sock.sendMessage(from, {
-        text: `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n👑 • • ✤ تم نقل القيادة! ✤ • • 👑\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n│ 🏰 الكلان: ${clan.name}\n│ 👑 القائد السابق: ${result.message.split('\n')[1].replace('👑 من: ', '')}\n│ 👑 القائد الجديد: ${result.message.split('\n')[2].replace('👑 إلى: ', '')}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n> \`بــوت :\`\n> _*『 FATIMA 』*_\n━─━••❁⊰｢ ❀｣⊱❁••━─━`
+        text: `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n👑 • • ✤ تم نقل القيادة! ✤ • • 👑\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n│ 🏰 الكلان: ${clan.name}\n│ 👑 القائد السابق: ${result.message.split('\n')[1].replace('👑 من: ', '')}\n│ 👑 القائد الجديد: ${result.message.split('\n')[2].replace('👑 إلى: ', '')}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n> \`بــوت :\`\n> _*『 FATIMA 』*__\n━─━••❁⊰｢ ❀｣⊱❁••━─━`
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // حذف الكلان (فقط للقائد)
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['حذف_كلان', 'deleteclan'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      // التحقق من أن المستخدم هو القائد
+      if (!isClanLeader(clan, sender)) {
+        return sock.sendMessage(from, { text: '❌ فقط قائد الكلان يستطيع حذف الكلان!' });
+      }
+
+      const result = deleteClan(clan, sender);
+
+      if (!result.success) {
+        return sock.sendMessage(from, { text: result.message });
+      }
+
+      const clanName = clan.name;
+      return sock.sendMessage(from, {
+        text: `@\\n━─━••❁⊰｢❀｣⊱❁••━─━\\n\\n💀 • • ✤ تم حذف الكلان! ✤ • • 💀\\n\\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\\n│ 🏰 الكلان: ${clanName}\\n│ 👑 القائد: ${result.message}\\n│ 💔 الحالة: تم الحل\\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\\n\\n> \`بــوت :\`\\n> _*『 FATIMA 』*_\\n━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
     }
 
