@@ -712,7 +712,7 @@ function formatWarMessage(war, prefix) {
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
   
-  return `⚔️ *بدأت الحرب!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n\n🎯 استخدموا:\n${prefix}هجوم_حرب للهجوم!`;
+  return `⚔️ *بدأت الحرب!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n\n🎯 استخدموا:\n${prefix}مشاركة_الحرب <عدد الجنود> لتسجيل مشاركتك!`;
 }
 
 // دالة لحساب سعة الجيش بناءً على مستوى المبنى
@@ -822,7 +822,6 @@ export default {
     'قبول_التحدي', 'accept',
     'رفض_التحدي', 'reject',
     'مشاركة_الحرب', 'مشاركة', 'participate',
-    'هجوم_حرب', 'attack', 'هجوم',
     'الحرب', 'war', 'حربي',
     'التحديات', 'challenges',
     'الكلانات', 'clanslist',
@@ -1085,7 +1084,7 @@ export default {
       } catch (e) {}
 
       return sock.sendMessage(from, {
-        text: `⚔️ قبلت التحدي!\n\n🏰 ${result.war.challengerName} VS 🏰 ${result.war.targetName}\n\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 اهجم الآن: ${prefix}هجوم_حرب`
+        text: `⚔️ قبلت التحدي!\n\n🏰 ${result.war.challengerName} VS 🏰 ${result.war.targetName}\n\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`
       });
     }
 
@@ -1166,13 +1165,15 @@ export default {
         });
       } else {
         return sock.sendMessage(from, { 
-          text: `❌ انتهت فترة التجهيز!\\n💡 الحرب بدأت، استخدم ${prefix}هجوم_حرب للقتال!` 
+          text: `❌ انتهت فترة التجهيز!\\n💡 انتهت فترة التجهيز، سيتم حساب الضرر تلقائياً!` 
         });
       }
     }
 
-    // الهجوم في الحرب
-    if (['هجوم_حرب', 'attack', 'هجوم'].includes(command)) {
+    // الهجوم في الحرب - تم حذفه، الآن المشاركة فقط
+    // ملاحظة: الهجوم يتم تلقائياً عند انتهاء الحرب بناءً على مشاركة الأعضاء
+
+    if (['مشاركة_الحرب', 'مشاركة', 'participate'].includes(command)) {
       const player = data.players?.[sender];
       if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
@@ -1183,41 +1184,85 @@ export default {
         return sock.sendMessage(from, { text: '❌ لا توجد حرب نشطة!' });
       }
 
-      if (Date.now() >= war.endsAt) {
-        const result = await endWar(war, sock);
-        return sock.sendMessage(from, {
-          text: `🏁 انتهت الحرب!\n\n🏆 الفائز: ${result.winner}\n💰 الجائزة: ${result.prize?.toLocaleString()} ذهب`
-        });
-      }
-
-      // التأكد من أن فترة التجهيز انتهت والحرب بدأت
-      if (Date.now() < war.prepEndTime) {
-        const remainingPrep = Math.ceil((war.prepEndTime - Date.now()) / 60000);
+      // التحقق من أن الحرب في فترة التجهيز
+      if (Date.now() >= war.prepEndTime) {
         return sock.sendMessage(from, { 
-          text: `⏳ الحرب لم تبدأ بعد!\\n⏱️ الوقت المتبقي للتجهيز: ${remainingPrep} دقيقة\\n💡 استخدم ${prefix}مشاركة_الحرب لتسجيل جنودك` 
+          text: `❌ انتهت فترة التجهيز!\\n💡 الحرب بدأت، سيتم حساب الضرر تلقائياً عند الانتهاء.` 
         });
       }
 
-      const now = Date.now();
-      const lastAttack = player.lastWarAttack || 0;
-      if (now - lastAttack < 30000) {
-        const remaining = Math.ceil((30000 - (now - lastAttack)) / 1000);
-        return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} ثانية!` });
+      // استخراج عدد الجنود من الرسالة
+      const soldierCount = parseInt(text.split(' ')[1] || '0');
+      if (!soldierCount || soldierCount <= 0) {
+        return sock.sendMessage(from, { 
+          text: `❌ يجب تحديد عدد الجنود!\\n💡 استخدم: ${prefix}مشاركة_الحرب 50` 
+        });
       }
 
-      player.lastWarAttack = now;
-
-      const result = attackInWar(clan, sender, player.atk);
-      if (!result.success) {
-        return sock.sendMessage(from, { text: result.message });
+      // التحقق من سعة الثكنات
+      const buildingLevel = player.buildings?.barracks?.level || player.buildings?.tower?.level || 1;
+      const maxCapacity = buildingLevel * 20;
+      
+      if (soldierCount > maxCapacity) {
+        return sock.sendMessage(from, { 
+          text: `❌ عدد الجنود (${soldierCount}) يتجاوز سعة الثكنات (${maxCapacity})!\\n💡 قم بترقية مبنى صنفك لزيادة السعة.` 
+        });
       }
 
-      const remaining = Math.max(0, war.endsAt - Date.now());
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
+      // التحقق من عدد الجنود المتاح
+      const availableSoldiers = player.army?.total || 0;
+      if (soldierCount > availableSoldiers) {
+        return sock.sendMessage(from, { 
+          text: `❌ ليس لديك جنود كافيين!\\n🪖 جنودك المتاحين: ${availableSoldiers}\\n💡 استخدم ${prefix}تدريب لتدريب المزيد.` 
+        });
+      }
 
+      // حساب قوة الهجوم بناءً على الصنف والجنود
+      let attackPower = 0;
+      const classType = player.class;
+      
+      if (classType === 'محارب' || classType === 'فارس') {
+        attackPower = soldierCount * (player.atk || 10) * 1.2;
+      } else if (classType === 'رامي' || classType === 'قاتل') {
+        attackPower = soldierCount * (player.atk || 10) * 1.3;
+      } else if (classType === 'ساحر') {
+        attackPower = soldierCount * (player.magic || 10) * 1.5;
+      } else if (classType === 'شافي') {
+        attackPower = soldierCount * (player.atk || 10) * 0.8;
+      } else {
+        attackPower = soldierCount * (player.atk || 10);
+      }
+
+      // تسجيل المشاركة
+      const isChallenger = war.challengerId === from;
+      const attacksArray = isChallenger ? war.challengerAttacks : war.targetAttacks;
+      
+      const existingAttack = attacksArray.find(a => a.playerId === sender);
+      if (existingAttack) {
+        existingAttack.damage = Math.floor(attackPower);
+        existingAttack.soldiers = soldierCount;
+      } else {
+        attacksArray.push({
+          playerId: sender,
+          damage: Math.floor(attackPower),
+          soldiers: soldierCount,
+          class: classType,
+          timestamp: Date.now()
+        });
+      }
+
+      if (isChallenger) {
+        war.challengerAttacks = attacksArray;
+        war.challengerDamage = attacksArray.reduce((sum, a) => sum + a.damage, 0);
+      } else {
+        war.targetAttacks = attacksArray;
+        war.targetDamage = attacksArray.reduce((sum, a) => sum + a.damage, 0);
+      }
+
+      const remainingPrep = Math.ceil((war.prepEndTime - Date.now()) / 60000);
+      
       return sock.sendMessage(from, {
-        text: `⚔️ هجوم ناجح!\n\n💥 ضررك: ${result.damage}\n📊 ضرر فريقك: ${result.totalDamage.toLocaleString()}\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}`
+        text: `⚔️ تم تسجيل مشاركتك بنجاح!\\n\\n🪖 الجنود: ${soldierCount}/${maxCapacity}\\n💥 قوة الهجوم: ${Math.floor(attackPower).toLocaleString()}\\n📊 ضرر فريقك الكلي: ${(isChallenger ? war.challengerDamage : war.targetDamage).toLocaleString()}\\n\\n⏱️ الوقت المتبقي للتجهيز: ${remainingPrep} دقيقة\\n💡 بعد انتهاء التجهيز ستبدأ الحرب تلقائياً!`
       });
     }
 
@@ -1237,7 +1282,7 @@ export default {
       const enemyName = isChallenger ? war.targetName : war.challengerName;
 
       return sock.sendMessage(from, {
-        text: `⚔️ حالة الحرب\n\n🏰 ${myName}: ${myDamage?.toLocaleString() || 0} ضرر\n🏰 ${enemyName}: ${enemyDamage?.toLocaleString() || 0} ضرر\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n💰 الجائزة: ${war.prizePool?.toLocaleString() || 0} ذهب\n\n🎯 ${prefix}هجوم_حرب`
+        text: `⚔️ حالة الحرب\n\n🏰 ${myName}: ${myDamage?.toLocaleString() || 0} ضرر\n🏰 ${enemyName}: ${enemyDamage?.toLocaleString() || 0} ضرر\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n💰 الجائزة: ${war.prizePool?.toLocaleString() || 0} ذهب`
       });
     }
 
