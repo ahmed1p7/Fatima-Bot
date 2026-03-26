@@ -130,6 +130,34 @@ function joinClan(clan, playerId) {
   return { success: true, message: `✅ انضممت لكلان ${clan.name}!` };
 }
 
+function transferClanLeadership(clan, newLeaderId, currentLeaderId) {
+  if (!isClanLeader(clan, currentLeaderId)) {
+    return { success: false, message: '❌ فقط قائد الكلان يستطيع نقل القيادة!' };
+  }
+  
+  if (!clan.members.includes(newLeaderId)) {
+    return { success: false, message: '❌ العضو الجديد ليس في الكلان!' };
+  }
+  
+  const oldLeaderId = clan.leader;
+  const oldLeaderName = clan.leaderName;
+  
+  // جلب اسم القائد الجديد
+  const data = getRpgData();
+  const newLeaderName = data.players?.[newLeaderId]?.name || 'غير معروف';
+  
+  // نقل القيادة
+  clan.leader = newLeaderId;
+  clan.leaderName = newLeaderName;
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    message: `✅ تم نقل قيادة الكلان!\n👑 من: ${oldLeaderName}\n👑 إلى: ${newLeaderName}`
+  };
+}
+
 function getAvailableClans(excludeId) {
   const data = getRpgData();
   return Object.entries(data.clans || {})
@@ -361,7 +389,8 @@ export default {
     'هجوم_حرب', 'attack', 'هجوم',
     'الحرب', 'war', 'حربي',
     'التحديات', 'challenges',
-    'الكلانات', 'clanslist'
+    'الكلانات', 'clanslist',
+    'نقل_كلان', 'transferclan'
   ],
 
   async execute(sock, msg, ctx) {
@@ -703,6 +732,37 @@ export default {
 
       return sock.sendMessage(from, {
         text: `⚔️ حالة الحرب\n\n🏰 ${myName}: ${myDamage?.toLocaleString() || 0} ضرر\n🏰 ${enemyName}: ${enemyDamage?.toLocaleString() || 0} ضرر\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n💰 الجائزة: ${war.prizePool?.toLocaleString() || 0} ذهب\n\n🎯 ${prefix}هجوم_حرب`
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // نقل قيادة الكلان
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['نقل_كلان', 'transferclan'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      // التحقق من أن المستخدم هو القائد
+      if (!isClanLeader(clan, sender)) {
+        return sock.sendMessage(from, { text: '❌ فقط قائد الكلان يستطيع استخدام هذا الأمر!' });
+      }
+
+      // التحقق من وجود Mention
+      if (!msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]) {
+        return sock.sendMessage(from, { 
+          text: `❌ يجب ذكر الشخص الذي تريد نقل القيادة له!\n💡 استخدم: ${prefix}نقل_كلان @الشخص` 
+        });
+      }
+
+      const newLeaderId = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+      const result = transferClanLeadership(clan, newLeaderId, sender);
+
+      if (!result.success) {
+        return sock.sendMessage(from, { text: result.message });
+      }
+
+      return sock.sendMessage(from, {
+        text: `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n👑 • • ✤ تم نقل القيادة! ✤ • • 👑\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n│ 🏰 الكلان: ${clan.name}\n│ 👑 القائد السابق: ${result.message.split('\n')[1].replace('👑 من: ', '')}\n│ 👑 القائد الجديد: ${result.message.split('\n')[2].replace('👑 إلى: ', '')}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n> \`بــوت :\`\n> _*『 FATIMA 』*_\n━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
     }
   }
