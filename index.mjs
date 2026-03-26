@@ -330,6 +330,28 @@ async function start() {
       console.log('\n✅ فاطمة بوت جاهزة! 🌙');
       console.log('🔌 Plugins: ' + plugins.length);
       
+      // عرض معلومات القنوات التي يتواجد فيها البوت وتعيين JID القناة
+      try {
+        const allChats = await sock.chats.all();
+        const channels = allChats.filter(chat => chat.id.endsWith('@newsletter'));
+        if (channels.length > 0) {
+          console.log('\n📢 القنوات المتواجدة فيها:');
+          for (const channel of channels) {
+            console.log(`   - الاسم: ${channel.name || 'غير معروف'} | JID: ${channel.id}`);
+            // تعيين JID القناة الأولى لبلاجن الكلان
+            const clanPlugin = plugins.find(p => p.name === 'Clan');
+            if (clanPlugin && clanPlugin.setChannelJid) {
+              clanPlugin.setChannelJid(channel.id);
+              console.log(`   ✅ تم تعيين JID القناة لبلاجن الكلان: ${channel.id}`);
+            }
+          }
+        } else {
+          console.log('\n⚠️ لم يتم العثور على أي قنوات. تأكد من انضمام البوت للقناة.');
+        }
+      } catch (err) {
+        console.error('❌ خطأ في جلب معلومات القنوات:', err.message);
+      }
+      
       // تهيئة المجدول
       initScheduler(sock);
     }

@@ -12,6 +12,7 @@ import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
 const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
 const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
+let CHANNEL_JID = null; // سيتم تعيينه عند بدء التشغيل
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🏗️ تعريفات المباني - نظام المستوطنة
@@ -216,8 +217,6 @@ function isClanLeader(clan, senderId) {
   if (!clan || !senderId) return false;
   const senderNum = String(senderId).split('@')[0];
   const leaderNum = String(clan.leader || '').split('@')[0];
-  // طباعة للتصحيح (يمكن إزالتها لاحقاً)
-  console.log(`[DEBUG] isClanLeader: sender=${senderNum}, leader=${leaderNum}, result=${senderNum === leaderNum}`);
   return senderNum === leaderNum;
 }
 
@@ -591,7 +590,7 @@ function getActiveWar(clanId) {
   return clan?.wars?.currentWar || null;
 }
 
-function endWar(war) {
+async function endWar(war, sock) {
   const data = getRpgData();
   
   const challengerClan = data.clans?.[war.challengerId];
@@ -671,6 +670,21 @@ function endWar(war) {
   }
   
   saveDatabase();
+  
+  // إرسال تقرير الحرب إلى القناة
+  if (CHANNEL_JID && sock) {
+    const warReport = `🏆 *وثيقة النصر* 🏆\n\n⚔️ الحرب: ${war.challengerName} VS ${war.targetName}\n\n🥇 الفائز: ${challengerWon ? war.challengerName : war.targetName}\n💀 نسبة التدمير:\n   • ${war.challengerName}: ${challengerDestruction}%\n   • ${war.targetName}: ${targetDestruction}%\n\n💰 الغنائم:\n   • ذهب: ${lootGold.toLocaleString()}\n   • إكسير: ${lootElixir.toLocaleString()}\n\n⭐ MVP: ${mvp ? `@${mvp.playerId.split('@')[0]} (${mvp.damage.toLocaleString()} ضرر)` : 'غير محدد'}\n\n${CHANNEL_URL}`;
+    
+    try {
+      await sock.sendMessage(CHANNEL_JID, { 
+        text: warReport,
+        mentions: mvp ? [mvp.playerId] : []
+      });
+      console.log(`✅ تم إرسال تقرير الحرب إلى القناة: ${CHANNEL_JID}`);
+    } catch (err) {
+      console.error('❌ خطأ في إرسال تقرير الحرب للقناة:', err.message);
+    }
+  }
   
   return {
     winner: challengerWon ? war.challengerName : war.targetName,
@@ -798,6 +812,7 @@ function getClanRankings() {
 
 export default {
   name: 'Clan',
+  setChannelJid: (jid) => { CHANNEL_JID = jid; }, // دالة لتعيين JID القناة
   commands: [
     'تفعيل_الكلان', 'createclan', 'إنشاء_كلان',
     'كلان', 'clan', 'كلانات',
@@ -1169,7 +1184,7 @@ export default {
       }
 
       if (Date.now() >= war.endsAt) {
-        const result = endWar(war);
+        const result = await endWar(war, sock);
         return sock.sendMessage(from, {
           text: `🏁 انتهت الحرب!\n\n🏆 الفائز: ${result.winner}\n💰 الجائزة: ${result.prize?.toLocaleString()} ذهب`
         });
