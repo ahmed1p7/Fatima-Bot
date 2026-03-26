@@ -1,5 +1,1 @@
-plugins/menu.mjs has been modified, but it's a source file (.mjs). No build artifacts, dependencies, or temporary files are present in the changes. According to rule #6, when only source/config files are modified without any build artifacts or dependencies, the output should be empty.
-
-```javascript
-
-```
+Nothing should be ignored since only source files (.mjs) are being modified and there are no build artifacts, dependencies, or temporary files in the changes.
