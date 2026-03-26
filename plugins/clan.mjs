@@ -10,6 +10,7 @@ import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function getClan(groupId) {
+  if (!groupId) return null;
   const data = getRpgData();
   return data.clans?.[groupId] || null;
 }
@@ -24,7 +25,7 @@ function getClanBuff(level) {
 
 function isClanLeader(clan, senderId) {
   if (!clan || !senderId) return false;
-  const senderNum = senderId.replace('@s.whatsapp.net', '');
+  const senderNum = String(senderId).replace('@s.whatsapp.net', '');
   const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
   return senderNum === leaderNum;
 }
@@ -143,10 +144,6 @@ function getAvailableClans(excludeId) {
     }));
 }
 
-function getPendingChallenges(groupId) {
-  const clan = getClan(groupId);
-  return clan?.wars?.pendingChallenges || [];
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚔️ نظام الحروب
@@ -511,18 +508,10 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
-
-      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
-      const senderNum = sender.replace('@s.whatsapp.net', '');
-      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
-      const isLeader = senderNum === leaderNum;
-      
-      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
-
-      if (clan.leader !== sender) {
+      // التحقق من أن المستخدم هو القائد
+      if (!isClanLeader(clan, sender)) {
         return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
       }
-      main
 
       // إذا لم يحدد كلان، عرض القائمة
       if (!args[0]) {
@@ -573,11 +562,14 @@ export default {
 
     // التحديات المعلقة
     if (['التحديات', 'challenges'].includes(command)) {
-      const challenges = getPendingChallenges(from);
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+      
+      const challenges = clan.wars?.pendingChallenges || [];
       if (challenges.length === 0) return sock.sendMessage(from, { text: '✅ لا توجد تحديات معلقة!' });
 
       const list = challenges.map((c, i) =>
-        `${i + 1}. ⚔️ ${c.challengerName} يتحداك!\n💰 الجائزة: ${c.prizePool.toLocaleString()}\n🆔 ${c.id}`
+        `${i + 1}. ⚔️ ${c.challengerName} يتحداك!\n💰 الجائزة: ${c.prizePool.toLocaleString()}`
       ).join('\n\n');
 
       return sock.sendMessage(from, { text: `📜 التحديات المعلقة:\n\n${list}\n\n✅ ${prefix}قبول_التحدي <الرقم>\n❌ ${prefix}رفض_التحدي <الرقم>` });
@@ -597,7 +589,7 @@ export default {
         return sock.sendMessage(from, { text: `❌ حدد رقم التحدي!\n💡 استخدم: ${prefix}قبول_التحدي <الرقم>` });
       }
 
-      const challenges = getPendingChallenges(from);
+      const challenges = clan.wars?.pendingChallenges || [];
       let challengeIndex = parseInt(challengeId) - 1;
       
       if (isNaN(challengeIndex) || challengeIndex < 0 || challengeIndex >= challenges.length) {
@@ -635,7 +627,7 @@ export default {
         return sock.sendMessage(from, { text: `❌ حدد رقم التحدي!\n💡 استخدم: ${prefix}رفض_التحدي <الرقم>` });
       }
 
-      const challenges = getPendingChallenges(from);
+      const challenges = clan.wars?.pendingChallenges || [];
       let challengeIndex = parseInt(challengeId) - 1;
       
       if (isNaN(challengeIndex) || challengeIndex < 0 || challengeIndex >= challenges.length) {
