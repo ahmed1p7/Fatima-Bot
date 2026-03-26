@@ -1,8 +1,7 @@
+--- plugins/sticker.mjs (原始)
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🎨 الملصقات
 // ═══════════════════════════════════════════════════════════════════════════════
-
-import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 
 export default {
   name: 'Stickers',
@@ -21,6 +20,100 @@ export default {
       return sock.sendMessage(from, { text: '❌ وحدة الملصقات غير متاحة!\n💡 جرب: npm install wa-sticker-formatter' });
     }
 
+    // ملصق
+    if (['ملصق', 's', 'sticker'].includes(command)) {
+      const q = msg.message?.extendedTextMessage?.contextInfo;
+      const hasMedia = q?.quotedMessage?.imageMessage || q?.quotedMessage?.videoMessage || msg.message?.imageMessage || msg.message?.videoMessage;
+
+      if (!hasMedia) {
+        return sock.sendMessage(from, { text: `❌ رد على صورة أو فيديو!\n💡 ${prefix}ملصق` });
+      }
+
+      try {
+        const media = q?.quotedMessage?.imageMessage || q?.quotedMessage?.videoMessage || msg.message?.imageMessage || msg.message?.videoMessage;
+        const stream = await sock.downloadMediaContent(media);
+        const chunks = [];
+        for await (const c of stream) chunks.push(c);
+        const buf = Buffer.concat(chunks);
+
+        const sticker = new Sticker(buf, {
+          pack: 'فاطمة بوت',
+          author: args[0] || '',
+          type: StickerTypes.FULL,
+          quality: 50
+        });
+
+        await sock.sendMessage(from, { sticker: await sticker.toBuffer() });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل إنشاء الملصق!\n' + e.message });
+      }
+    }
+
+    // سرقة ملصق
+    if (['سرقة_ملصق', 'steal'].includes(command)) {
+      const q = msg.message?.extendedTextMessage?.contextInfo;
+      if (!q?.quotedMessage?.stickerMessage) {
+        return sock.sendMessage(from, { text: '❌ رد على ملصق!' });
+      }
+
+      try {
+        const stream = await sock.downloadMediaContent(q.quotedMessage.stickerMessage);
+        const chunks = [];
+        for await (const c of stream) chunks.push(c);
+        const buf = Buffer.concat(chunks);
+
+        const sticker = new Sticker(buf, {
+          pack: 'فاطمة بوت',
+          author: text || sender.split('@')[0],
+          type: StickerTypes.FULL,
+          quality: 50
+        });
+
+        await sock.sendMessage(from, { sticker: await sticker.toBuffer() });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
+    }
+
+    // لصورة
+    if (['لصورة', 'toimg'].includes(command)) {
+      const q = msg.message?.extendedTextMessage?.contextInfo;
+      if (!q?.quotedMessage?.stickerMessage) {
+        return sock.sendMessage(from, { text: '❌ رد على ملصق!' });
+      }
+
+      try {
+        const stream = await sock.downloadMediaContent(q.quotedMessage.stickerMessage);
+        const chunks = [];
+        for await (const c of stream) chunks.push(c);
+        await sock.sendMessage(from, { image: Buffer.concat(chunks), caption: '✅ تم!' });
+      } catch (e) {
+        return sock.sendMessage(from, { text: '❌ فشل!' });
+      }
+    }
+  }
+};
+
++++ plugins/sticker.mjs (修改后)
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎨 الملصقات - باستخدام FFmpeg
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { downloadContentFromMessage } from '@whiskeysockets/baileys';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+
+const execAsync = promisify(exec);
+
+export default {
+  name: 'Stickers',
+  commands: ['ملصق', 's', 'sticker', 'سرقة_ملصق', 'steal', 'لصورة', 'toimg'],
+
+  async execute(sock, msg, ctx) {
+    const { from, sender, command, args, text, prefix } = ctx;
+
     // دالة مساعدة لتنزيل المحتوى
     async function downloadMedia(mediaMessage, messageType) {
       try {
@@ -35,11 +128,53 @@ export default {
       }
     }
 
+    // دالة لإنشاء ملصق باستخدام FFmpeg
+    async function createSticker(buffer, isVideo = false) {
+      const tempDir = path.join(process.cwd(), 'temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      const inputPath = path.join(tempDir, `input_${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`);
+      const outputPath = path.join(tempDir, `sticker_${Date.now()}.webp`);
+
+      try {
+        fs.writeFileSync(inputPath, buffer);
+
+        if (isVideo) {
+          // تحويل فيديو إلى ملصق متحرك
+          await execAsync(`ffmpeg -i "${inputPath}" -vf "scale='min(512,iw)':min'(512,ih)':force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 50 "${outputPath}"`);
+        } else {
+          // تحويل صورة إلى ملصق
+          await execAsync(`ffmpeg -i "${inputPath}" -vf "scale='min(512,iw)':min'(512,ih)':force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000" -c:v libwebp -preset default -lossless 0 -qscale 50 -pix_fmt yuva420p "${outputPath}"`);
+        }
+
+        const stickerBuffer = fs.readFileSync(outputPath);
+
+        // تنظيف الملفات المؤقتة
+        try {
+          fs.unlinkSync(inputPath);
+          fs.unlinkSync(outputPath);
+        } catch (e) {
+          // تجاهل أخطاء الحذف
+        }
+
+        return stickerBuffer;
+      } catch (error) {
+        // تنظيف الملفات المؤقتة في حالة الخطأ
+        try {
+          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+          if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (e) {}
+        throw error;
+      }
+    }
+
     // ملصق
     if (['ملصق', 's', 'sticker'].includes(command)) {
       const q = msg.message?.extendedTextMessage?.contextInfo;
       const quotedMsg = q?.quotedMessage;
-      
+
       let media = null;
       let mediaType = null;
 
@@ -63,15 +198,10 @@ export default {
 
       try {
         const buf = await downloadMedia(media, mediaType);
+        const isVideo = mediaType === 'video';
 
-        const sticker = new Sticker(buf, {
-          pack: 'فاطمة بوت',
-          author: args[0] || '',
-          type: StickerTypes.FULL,
-          quality: 50
-        });
-
-        await sock.sendMessage(from, { sticker: await sticker.toBuffer() });
+        const stickerBuffer = await createSticker(buf, isVideo);
+        await sock.sendMessage(from, { sticker: stickerBuffer });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ فشل إنشاء الملصق!\n' + e.message });
       }
@@ -88,14 +218,8 @@ export default {
         const media = q.quotedMessage.stickerMessage;
         const buf = await downloadMedia(media, 'sticker');
 
-        const sticker = new Sticker(buf, {
-          pack: 'فاطمة بوت',
-          author: text || sender.split('@')[0],
-          type: StickerTypes.FULL,
-          quality: 50
-        });
-
-        await sock.sendMessage(from, { sticker: await sticker.toBuffer() });
+        // إعادة إرسال الملصق كما هو (بدون تغيير البيانات الوصفية لأن WebP لا يدعم ذلك بسهولة)
+        await sock.sendMessage(from, { sticker: buf });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ فشل!\n' + e.message });
       }
@@ -111,8 +235,28 @@ export default {
       try {
         const media = q.quotedMessage.stickerMessage;
         const buf = await downloadMedia(media, 'sticker');
-        
-        await sock.sendMessage(from, { image: buf, caption: '✅ تم تحويل الملصق إلى صورة!' });
+
+        const tempDir = path.join(process.cwd(), 'temp');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const inputPath = path.join(tempDir, `sticker_input_${Date.now()}.webp`);
+        const outputPath = path.join(tempDir, `image_output_${Date.now()}.png`);
+
+        fs.writeFileSync(inputPath, buf);
+
+        await execAsync(`ffmpeg -i "${inputPath}" "${outputPath}"`);
+
+        const imageBuffer = fs.readFileSync(outputPath);
+
+        // تنظيف الملفات المؤقتة
+        try {
+          fs.unlinkSync(inputPath);
+          fs.unlinkSync(outputPath);
+        } catch (e) {}
+
+        await sock.sendMessage(from, { image: imageBuffer, caption: '✅ تم تحويل الملصق إلى صورة!' });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ فشل!\n' + e.message });
       }
