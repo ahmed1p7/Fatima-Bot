@@ -8,19 +8,26 @@
     "start": "node index.mjs",
     "dev": "node --watch index.mjs"
   },
-  "keywords": ["whatsapp-bot", "baileys", "fatima-bot", "arabic-bot", "rpg", "clans"],
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "fatima-bot",
+    "arabic-bot",
+    "rpg",
+    "clans"
+  ],
   "author": "zaza",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@napi-rs/canvas": "^0.1.44",
     "@whiskeysockets/baileys": "^6.6.0",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
     "pino": "^8.16.2",
     "qrcode-terminal": "^0.12.0",
-    "node-fetch": "^3.3.2",
-    "z-ai-web-dev-sdk": "^0.0.17",
-    "wa-sticker-formatter": "^4.3.2",
     "sharp": "^0.32.6",
-    "@napi-rs/canvas": "^0.1.44",
-    "node-cron": "^3.0.3"
+    "wa-sticker-formatter": "^4.3.2"
   },
   "engines": {
     "node": ">=18.0.0"
