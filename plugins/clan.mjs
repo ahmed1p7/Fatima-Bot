@@ -806,7 +806,7 @@ export default {
     'تحدي', 'challenge',
     'قبول_التحدي', 'accept',
     'رفض_التحدي', 'reject',
-    'مشاركة', 'participate',
+    'مشاركة_الحرب', 'مشاركة', 'participate',
     'هجوم_حرب', 'attack', 'هجوم',
     'الحرب', 'war', 'حربي',
     'التحديات', 'challenges',
@@ -1106,7 +1106,7 @@ export default {
     }
 
     // المشاركة في الحرب (تسجيل الجنود)
-    if (['مشاركة', 'participate'].includes(command)) {
+    if (['مشاركة_الحرب', 'مشاركة', 'participate'].includes(command)) {
       const player = data.players?.[sender];
       if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
@@ -1151,7 +1151,7 @@ export default {
         });
       } else {
         return sock.sendMessage(from, { 
-          text: `❌ انتهت فترة التجهيز!\\n💡 استخدم ${prefix}هجوم_حرب للمشاركة في القتال الآن` 
+          text: `❌ انتهت فترة التجهيز!\\n💡 الحرب بدأت، استخدم ${prefix}هجوم_حرب للقتال!` 
         });
       }
     }
@@ -1172,6 +1172,14 @@ export default {
         const result = endWar(war);
         return sock.sendMessage(from, {
           text: `🏁 انتهت الحرب!\n\n🏆 الفائز: ${result.winner}\n💰 الجائزة: ${result.prize?.toLocaleString()} ذهب`
+        });
+      }
+
+      // التأكد من أن فترة التجهيز انتهت والحرب بدأت
+      if (Date.now() < war.prepEndTime) {
+        const remainingPrep = Math.ceil((war.prepEndTime - Date.now()) / 60000);
+        return sock.sendMessage(from, { 
+          text: `⏳ الحرب لم تبدأ بعد!\\n⏱️ الوقت المتبقي للتجهيز: ${remainingPrep} دقيقة\\n💡 استخدم ${prefix}مشاركة_الحرب لتسجيل جنودك` 
         });
       }
 
