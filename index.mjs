@@ -331,29 +331,6 @@ async function start() {
       console.log('\n✅ فاطمة بوت جاهزة! 🌙');
       console.log('🔌 Plugins: ' + plugins.length);
       
-      // عرض معلومات القنوات التي يتواجد فيها البوت وتعيين JID القناة
-      try {
-        const allChats = sock.chats ? Object.values(sock.chats) : [];
-        const channels = allChats.filter(chat => chat && chat.id && chat.id.endsWith('@newsletter'));
-        if (channels.length > 0) {
-          console.log('\n📢 القنوات المتواجدة فيها:');
-          for (const channel of channels) {
-            const channelName = channel.name || channel.subject || 'غير معروف';
-            console.log(`   - الاسم: ${channelName} | JID: ${channel.id}`);
-            // تعيين JID القناة الأولى لبلاجن الكلان
-            const clanPlugin = plugins.find(p => p.name === 'Clan' || p.name === 'clan');
-            if (clanPlugin && clanPlugin.setChannelJid) {
-              clanPlugin.setChannelJid(channel.id);
-              console.log(`   ✅ تم تعيين JID القناة لبلاجن الكلان: ${channel.id}`);
-            }
-          }
-        } else {
-          console.log('\n⚠️ لم يتم العثور على أي قنوات. تأكد من انضمام البوت للقناة.');
-        }
-      } catch (err) {
-        console.error('❌ خطأ في جلب معلومات القنوات:', err.message);
-      }
-      
       // تهيئة المجدول
       initScheduler(sock);
       
