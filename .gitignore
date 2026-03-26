@@ -1,41 +1,39 @@
-```
-# Dependencies
-node_modules/
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Logs and temp files
-*.log
+plugins/menu.mjs.swp
+plugins/menu.mjs.swo
 *.tmp
-
-# Editors
-.vscode/
-.idea/
-
-# Python
+*.log
+.DS_Store
+Thumbs.db
+node_modules/
+.npm/
+.yarn/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-*.so
-
-# Build outputs
+venv/
+.venv/
+.env
+.env.local
+.env.*
+.coverage
+htmlcov/
+coverage/
 dist/
 build/
 *.out
 *.exe
 *.dll
 *.so
-*.dylib
 *.a
 *.o
-*.obj
-
-# Compressed files
+target/
+.gradle/
+.mypy_cache/
+.pytest_cache/
+.vscode/
+.idea/
 *.zip
 *.gz
 *.tar
@@ -54,12 +52,3 @@ build/
 *.Z
 *.lz
 *.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
-
-# System files
-.DS_Store
-Thumbs.db
-```
