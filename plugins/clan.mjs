@@ -13,6 +13,153 @@ const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
 const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🏗️ تعريفات المباني - نظام المستوطنة
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const BUILDINGS = {
+  // القلعة المركزية
+  castle: {
+    id: 'castle',
+    name: 'القلعة المركزية',
+    emoji: '🏰',
+    description: 'مركز المستوطنة - ترقيتها تزيد سعة الأعضاء والتخزين والدم',
+    category: 'main',
+    maxLevel: 10,
+    baseCost: { gold: 1000, elixir: 500 },
+    costMultiplier: 2,
+    effects: {
+      memberCapacity: [20, 25, 30, 35, 40, 45, 50, 55, 60, 70],
+      storageBonus: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000],
+      hpBonus: [0, 50, 100, 150, 200, 250, 300, 400, 500, 600]
+    },
+    requirements: {}
+  },
+  
+  // مباني الأصناف
+  barracks: {
+    id: 'barracks',
+    name: 'الثكنات',
+    emoji: '⚔️',
+    description: 'مبنى المحاربين والفرسان - يزيد سعة الجيش وقوته',
+    category: 'class',
+    classType: ['محارب', 'فارس'],
+    maxLevel: 10,
+    baseCost: { gold: 500, elixir: 300 },
+    costMultiplier: 1.8,
+    effects: {
+      armyCapacity: [20, 40, 60, 80, 100, 120, 140, 160, 180, 200],
+      atkBonus: [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.2],
+      clanAtkBonus: [0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.05]
+    },
+    requirements: { castle: 1 }
+  },
+  
+  mageTower: {
+    id: 'mageTower',
+    name: 'برج السحر',
+    emoji: '🔮',
+    description: 'مبنى السحرة - يزيد الدفاع السحري للمستوطنة',
+    category: 'class',
+    classType: ['ساحر'],
+    maxLevel: 10,
+    baseCost: { gold: 500, elixir: 400 },
+    costMultiplier: 1.8,
+    effects: {
+      magBonus: [0, 0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24, 0.3],
+      magicalDefense: [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5],
+      clanMagDef: [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.2]
+    },
+    requirements: { castle: 1 }
+  },
+  
+  hospital: {
+    id: 'hospital',
+    name: 'المشفى',
+    emoji: '🏥',
+    description: 'مبنى الشافين - يسرع استعادة الطاقة ويقلل الخسائر',
+    category: 'class',
+    classType: ['شافي'],
+    maxLevel: 10,
+    baseCost: { gold: 600, elixir: 350 },
+    costMultiplier: 1.8,
+    effects: {
+      staminaRegenBonus: [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5],
+      healBonus: [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5],
+      warLossReduction: [0, 0.03, 0.06, 0.09, 0.12, 0.15, 0.18, 0.21, 0.24, 0.3]
+    },
+    requirements: { castle: 1 }
+  },
+  
+  watchtower: {
+    id: 'watchtower',
+    name: 'برج المراقبة',
+    emoji: '🗼',
+    description: 'مبنى الرماة والقتلة - يكشف دفاعات العدو ويزيد الدقة',
+    category: 'class',
+    classType: ['رامي', 'قاتل'],
+    maxLevel: 10,
+    baseCost: { gold: 450, elixir: 300 },
+    costMultiplier: 1.8,
+    effects: {
+      critBonus: [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.2],
+      enemyDefReveal: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1],
+      clanScoutBonus: [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5]
+    },
+    requirements: { castle: 1 }
+  },
+  
+  // مباني الموارد
+  goldMine: {
+    id: 'goldMine',
+    name: 'منجم الذهب',
+    emoji: '⛏️',
+    description: 'ينتج ذهباً يومياً للمستوطنة',
+    category: 'resource',
+    maxLevel: 10,
+    maxCount: 3,
+    baseCost: { gold: 200, elixir: 100 },
+    costMultiplier: 1.5,
+    effects: {
+      production: [50, 100, 150, 200, 300, 400, 500, 700, 900, 1200]
+    },
+    requirements: {}
+  },
+  
+  elixirCollector: {
+    id: 'elixirCollector',
+    name: 'جامع الإكسير',
+    emoji: '⚗️',
+    description: 'ينتج إكسيراً يومياً للمستوطنة',
+    category: 'resource',
+    maxLevel: 10,
+    maxCount: 3,
+    baseCost: { gold: 150, elixir: 50 },
+    costMultiplier: 1.5,
+    effects: {
+      production: [30, 60, 90, 120, 180, 240, 300, 420, 540, 720]
+    },
+    requirements: {}
+  },
+  
+  // مباني الدفاع
+  wall: {
+    id: 'wall',
+    name: 'الأسوار',
+    emoji: '🧱',
+    description: 'يزيد دفاع المستوطنة في الحروب',
+    category: 'defense',
+    maxLevel: 10,
+    maxCount: 5,
+    baseCost: { gold: 300, elixir: 100 },
+    costMultiplier: 1.4,
+    effects: {
+      defenseBonus: [20, 40, 60, 80, 100, 130, 160, 200, 250, 300]
+    },
+    requirements: { castle: 1 }
+  }
+};
+
 // أنواع الجنود حسب الأصناف
 const SOLDIER_TYPES = {
   "محارب": "infantry",
@@ -35,16 +182,16 @@ const SOLDIER_NAMES = {
 const CLASS_EFFECTS = {
   "محارب": { type: "attack", bonus: 1.2 },
   "رامي": { type: "range", bonus: 1.3 },
-  "فارس": { type: "tank", bonus: 0.8 }, // يمتص الضرر
-  "ساحر": { type: "magic", bonus: 1.5 }, // يبطل دفاع الخصم
-  "شافي": { type: "support", bonus: 0.7 } // يقلل الخسائر 30%
+  "فارس": { type: "tank", bonus: 0.8 },
+  "ساحر": { type: "magic", bonus: 1.5 },
+  "شافي": { type: "support", bonus: 0.7 }
 };
 
 // عناصر المتجر الحربي
 const WAR_ITEMS = {
   "تعويذة حماية": { type: "defense_buff", value: 1.5, cost: 1000 },
   "جرعة هجومية": { type: "attack_buff", value: 1.5, cost: 1000 },
-  "تعويذة تجميد": { type: "freeze", duration: 300000, cost: 2000 } // 5 دقائق
+  "تعويذة تجميد": { type: "freeze", duration: 300000, cost: 2000 }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -632,6 +779,8 @@ export default {
     'الكلانات', 'clanslist',
     'نقل_كلان', 'transferclan',
     'تدريب', 'train',
+    'جيشي', 'myarmy',
+    'مبناي', 'mybuildings',
     'شراء_حرب', 'buywar',
     'ترتيب_كلان', 'clanrank'
   ],
@@ -1024,6 +1173,98 @@ export default {
 
       return sock.sendMessage(from, { text: result.message });
     }
+    // ═════════════════════════════════════════════════════════════════════════
+    // عرض جيشي
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['جيشي', 'myarmy'].includes(command)) {
+      const player = data.players?.[sender];
+      if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      const playerClass = player.class || "محارب";
+      const soldierType = SOLDIER_TYPES[playerClass] || "infantry";
+      const soldierName = SOLDIER_NAMES[soldierType];
+      
+      let buildingLevel = 1;
+      if (soldierType === "infantry" || soldierType === "cavalry") {
+        buildingLevel = clan.settlement?.buildings?.barracks?.level || 1;
+      } else if (soldierType === "archer") {
+        buildingLevel = clan.settlement?.buildings?.watchtower?.level || 1;
+      } else if (soldierType === "mage") {
+        buildingLevel = clan.settlement?.buildings?.mageTower?.level || 1;
+      } else if (soldierType === "healer") {
+        buildingLevel = clan.settlement?.buildings?.hospital?.level || 1;
+      }
+      
+      const maxCapacity = getArmyCapacity(buildingLevel);
+      const currentSoldiers = player.soldiers || 0;
+      
+      return sock.sendMessage(from, {
+        text: `🪖 *جيشك*\n\n🎯 الصنف: ${playerClass}\n⚔️ نوع الجنود: ${soldierName}\n📊 العدد الحالي: ${currentSoldiers}/${maxCapacity}\n🏰 مستوى المبنى: ${buildingLevel}\n\n💡 استخدم ${prefix}تدريب <عدد> لزيادة الجيش`
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // عرض مباني المستوطنة
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['مبناي', 'mybuildings'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      const buildings = clan.settlement?.buildings || {};
+      let text = `🏰 *مباني مستوطنتك*\n\n`;
+      
+      // القلعة المركزية
+      const castleLevel = buildings.castle?.level || 1;
+      text += `🏰 القلعة المركزية: مستوى ${castleLevel}\n`;
+      text += `   👥 سعة الأعضاء: ${BUILDINGS.castle.effects.memberCapacity[castleLevel - 1]}\n\n`;
+      
+      // الثكنات
+      const barracksLevel = buildings.barracks?.level || 0;
+      if (barracksLevel > 0) {
+        text += `⚔️ الثكنات: مستوى ${barracksLevel}\n`;
+        text += `   📊 سعة الجيش: +${BUILDINGS.barracks.effects.armyCapacity[barracksLevel - 1]}\n\n`;
+      }
+      
+      // برج السحر
+      const mageTowerLevel = buildings.mageTower?.level || 0;
+      if (mageTowerLevel > 0) {
+        text += `🔮 برج السحر: مستوى ${mageTowerLevel}\n`;
+        text += `   🛡️ الدفاع السحري: +${(BUILDINGS.mageTower.effects.magicalDefense[mageTowerLevel - 1] * 100).toFixed(0)}%\n\n`;
+      }
+      
+      // المشفى
+      const hospitalLevel = buildings.hospital?.level || 0;
+      if (hospitalLevel > 0) {
+        text += `🏥 المشفى: مستوى ${hospitalLevel}\n`;
+        text += `   💚 تقليل الخسائر: ${(BUILDINGS.hospital.effects.warLossReduction[hospitalLevel - 1] * 100).toFixed(0)}%\n\n`;
+      }
+      
+      // برج المراقبة
+      const watchtowerLevel = buildings.watchtower?.level || 0;
+      if (watchtowerLevel > 0) {
+        text += `🗼 برج المراقبة: مستوى ${watchtowerLevel}\n`;
+        text += `   🎯 كشف العدو: ${(BUILDINGS.watchtower.effects.enemyDefReveal[watchtowerLevel - 1] * 100).toFixed(0)}%\n\n`;
+      }
+      
+      // الأسوار
+      const walls = buildings.wall || [];
+      if (walls.length > 0) {
+        const totalDefense = walls.reduce((sum, w) => sum + (BUILDINGS.wall.effects.defenseBonus[(w.level || 1) - 1] || 0), 0);
+        text += `🧱 الأسوار (${walls.length}): دفاع إجمالي ${totalDefense}\n\n`;
+      }
+      
+      // الموارد
+      const goldMines = buildings.goldMine || [];
+      const elixirCollectors = buildings.elixirCollector || [];
+      text += `⛏️ مناجم الذهب: ${goldMines.length}\n`;
+      text += `⚗️ جامعات الإكسير: ${elixirCollectors.length}\n`;
+      
+      return sock.sendMessage(from, { text });
+    }
+
 
     // ═════════════════════════════════════════════════════════════════════════
     // شراء عناصر حرب
