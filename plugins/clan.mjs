@@ -216,6 +216,8 @@ function isClanLeader(clan, senderId) {
   if (!clan || !senderId) return false;
   const senderNum = String(senderId).split('@')[0];
   const leaderNum = String(clan.leader || '').split('@')[0];
+  // طباعة للتصحيح (يمكن إزالتها لاحقاً)
+  console.log(`[DEBUG] isClanLeader: sender=${senderNum}, leader=${leaderNum}, result=${senderNum === leaderNum}`);
   return senderNum === leaderNum;
 }
 
@@ -930,10 +932,15 @@ export default {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
+      // طباعة للتصحيح
+      console.log(`[DEBUG] تحدي - sender: ${sender}, clan.leader: ${clan.leader}`);
+      
       // التحقق من أن المستخدم هو القائد
       if (!isClanLeader(clan, sender)) {
+        console.log(`[DEBUG] فشل التحقق: ليس قائد`);
         return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
       }
+      console.log(`[DEBUG] نجح التحقق: المستخدم قائد`);
 
       // إذا لم يحدد كلان، عرض القائمة
       if (!args[0]) {
