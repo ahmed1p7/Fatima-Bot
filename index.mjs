@@ -332,14 +332,15 @@ async function start() {
       
       // عرض معلومات القنوات التي يتواجد فيها البوت وتعيين JID القناة
       try {
-        const allChats = Object.values(sock.chats);
-        const channels = allChats.filter(chat => chat.id.endsWith('@newsletter'));
+        const allChats = sock.chats ? Object.values(sock.chats) : [];
+        const channels = allChats.filter(chat => chat && chat.id && chat.id.endsWith('@newsletter'));
         if (channels.length > 0) {
           console.log('\n📢 القنوات المتواجدة فيها:');
           for (const channel of channels) {
-            console.log(`   - الاسم: ${channel.name || 'غير معروف'} | JID: ${channel.id}`);
+            const channelName = channel.name || channel.subject || 'غير معروف';
+            console.log(`   - الاسم: ${channelName} | JID: ${channel.id}`);
             // تعيين JID القناة الأولى لبلاجن الكلان
-            const clanPlugin = plugins.find(p => p.name === 'Clan');
+            const clanPlugin = plugins.find(p => p.name === 'Clan' || p.name === 'clan');
             if (clanPlugin && clanPlugin.setChannelJid) {
               clanPlugin.setChannelJid(channel.id);
               console.log(`   ✅ تم تعيين JID القناة لبلاجن الكلان: ${channel.id}`);
@@ -364,27 +365,11 @@ async function start() {
     if (type !== 'notify') return;
     for (const msg of messages) {
       try {
-        // التحقق من الرسائل الواردة من القنوات
+        // التحقق من الرسائل الواردة من القنوات - تم التعطيل لتجنب التكرار
         const from = msg.key.remoteJid;
         if (from && from.endsWith('@newsletter')) {
-          try {
-            const channelInfo = await sock.newsletterMetadata('jid', from);
-            if (channelInfo) {
-              console.log(`\n📢 رسالة جديدة من القناة:`);
-              console.log(`   الاسم: ${channelInfo.name}`);
-              console.log(`   JID: ${from}`);
-              console.log(`   المحتوى: ${JSON.stringify(msg.message).substring(0, 100)}...`);
-              
-              // حفظ JID القناة في بلاجن الكلان
-              const clanPlugin = plugins.find(p => p.name === 'clan');
-              if (clanPlugin && clanPlugin.exports.setChannelJid) {
-                clanPlugin.exports.setChannelJid(from);
-                console.log(`✅ تم تعيين JID القناة لبلاجن الكلان: ${from}`);
-              }
-            }
-          } catch (err) {
-            console.error('❌ خطأ في جلب معلومات القناة:', err.message);
-          }
+          // تخطي معالجة رسائل القناة لتجنب الرسائل المكررة
+          return;
         }
         
         if (!msg.message || msg.key.fromMe) continue;
