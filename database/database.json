@@ -1,5 +1,6 @@
 {
   "users": {},
+  "groups": {},
   "settings": {
     "prefix": ".",
     "language": "ar",
@@ -8,9 +9,9 @@
   "stats": {
     "commands": 0,
     "messages": 0,
-    "startTime": 1774462025174,
+    "startTime": 1774565706565,
     "totalPlayers": 0,
     "totalClans": 0
   },
-  "version": 15
+  "version": 13
 }

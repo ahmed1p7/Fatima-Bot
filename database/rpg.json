@@ -2,14 +2,17 @@
   "players": {},
   "clans": {},
   "territories": {},
-  "bosses": {},
+  "activeBoss": null,
+  "activeMonsters": {},
   "market": {
-    "storage": {},
     "offers": [],
+    "history": [],
+    "storage": {},
     "priceHistory": {},
     "totalTransactions": 0
   },
+  "version": 13,
+  "bosses": {},
   "bossHistory": [],
-  "globalEvents": [],
-  "version": 15
+  "globalEvents": []
 }
