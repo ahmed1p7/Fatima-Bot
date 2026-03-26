@@ -1,16 +1,6 @@
 ```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.out
-
 # Dependencies
 node_modules/
-venv/
-.venv/
-.julia/
 
 # Logs and temp files
 *.log
@@ -25,35 +15,33 @@ venv/
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# OS
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+.env
+
+# Build artifacts
+dist/
+build/
+target/
+*.out
+
+# OS generated files
 .DS_Store
 Thumbs.db
 
-# Coverage
+# Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# Build systems
-build/
-dist/
-target/
-.gradle/
-
-# Python specific
-*.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg-info/
-.eggs/
-
-# Compressed files
+# Compression files
 *.zip
 *.gz
 *.tar
