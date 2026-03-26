@@ -1,9 +1,51 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🏰 أوامر الكلانات والحروب المحسنة - فاطمة بوت v13.0
+// 🏰 أوامر الكلانات والحروب المحسنة - فاطمة بوت v14.0
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 ثوابت النظام
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
+const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
+const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
+
+// أنواع الجنود حسب الأصناف
+const SOLDIER_TYPES = {
+  "محارب": "infantry",
+  "رامي": "archer",
+  "فارس": "cavalry",
+  "ساحر": "mage",
+  "شافي": "healer"
+};
+
+// أسماء الجنود
+const SOLDIER_NAMES = {
+  infantry: "مشاة ثقيل",
+  archer: "رماة سهام",
+  cavalry: "فرسان مدرعون",
+  mage: "دعم سحري",
+  healer: "كاهن شفاء"
+};
+
+// تأثيرات الأصناف في الحرب
+const CLASS_EFFECTS = {
+  "محارب": { type: "attack", bonus: 1.2 },
+  "رامي": { type: "range", bonus: 1.3 },
+  "فارس": { type: "tank", bonus: 0.8 }, // يمتص الضرر
+  "ساحر": { type: "magic", bonus: 1.5 }, // يبطل دفاع الخصم
+  "شافي": { type: "support", bonus: 0.7 } // يقلل الخسائر 30%
+};
+
+// عناصر المتجر الحربي
+const WAR_ITEMS = {
+  "تعويذة حماية": { type: "defense_buff", value: 1.5, cost: 1000 },
+  "جرعة هجومية": { type: "attack_buff", value: 1.5, cost: 1000 },
+  "تعويذة تجميد": { type: "freeze", duration: 300000, cost: 2000 } // 5 دقائق
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 دوال مساعدة
@@ -58,6 +100,10 @@ function createClan(groupId, name, leaderId, leaderName) {
     settlement: {
       buildings: {
         castle: { level: 1 },
+        barracks: { level: 1 }, // ثكنات عسكرية
+        archeryRange: { level: 1 }, // ميدان الرماية
+        stable: { level: 1 }, // اسطبل الفرسان
+        magicTower: { level: 1 }, // برج السحر
         goldMine: [{ level: 1 }],
         elixirCollector: [{ level: 1 }]
       },
@@ -192,6 +238,8 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
   }
   
   const warId = `war_${Date.now()}`;
+  const prepEndTime = Date.now() + WAR_PREP_TIME;
+  const warEndTime = prepEndTime + WAR_DURATION;
   
   // إنشاء التحدي
   const challenge = {
@@ -204,7 +252,10 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
     targetTag: targetClan.clanTag,
     prizePool: Math.floor((challengerClan.gold || 0) * 0.1) + 500,
     createdAt: Date.now(),
-    expiresAt: Date.now() + 5 * 60 * 1000 // 5 دقائق للقبول
+    prepEndTime: prepEndTime,
+    warEndTime: warEndTime,
+    expiresAt: Date.now() + 5 * 60 * 1000, // 5 دقائق للقبول
+    status: 'pending'
   };
   
   // إضافة التحدي للكلان المستهدف
@@ -219,7 +270,8 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
     challenge,
     challengerName: challengerClan.name,
     targetName: targetClan.name,
-    prizePool: challenge.prizePool
+    prizePool: challenge.prizePool,
+    prepTime: WAR_PREP_TIME / 60000 // بالدقائق
   };
 }
 
@@ -246,7 +298,7 @@ function acceptChallenge(clan, challengeId, senderId) {
     return { success: false, message: '❌ الكلان المتحدي غير موجود!' };
   }
   
-  // إنشاء الحرب
+  // إنشاء الحرب مع فترة التجهيز
   const war = {
     id: challenge.id,
     challengerId: challenge.challengerId,
@@ -258,11 +310,18 @@ function acceptChallenge(clan, challengeId, senderId) {
     challengerDamage: 0,
     targetDamage: 0,
     prizePool: challenge.prizePool,
-    startedAt: Date.now(),
-    endsAt: Date.now() + 30 * 60 * 1000, // 30 دقيقة
-    status: 'active',
+    createdAt: Date.now(),
+    prepEndTime: challenge.prepEndTime,
+    startedAt: challenge.prepEndTime, // تبدأ بعد التجهيز
+    endsAt: challenge.warEndTime,
+    status: 'preparing', // حالة التجهيز
     challengerAttacks: [],
-    targetAttacks: []
+    targetAttacks: [],
+    events: [],
+    buffs: {
+      challenger: [],
+      target: []
+    }
   };
   
   // تحديث الحالة
@@ -275,7 +334,7 @@ function acceptChallenge(clan, challengeId, senderId) {
   
   saveDatabase();
   
-  return { success: true, war };
+  return { success: true, war, prepTime: WAR_PREP_TIME / 60000 };
 }
 
 function attackInWar(clan, playerId, attackPower) {
@@ -286,6 +345,17 @@ function attackInWar(clan, playerId, attackPower) {
   const war = clan.wars.currentWar;
   const now = Date.now();
   
+  // التحقق من فترة التجهيز
+  if (now < war.prepEndTime) {
+    const remaining = Math.ceil((war.prepEndTime - now) / 60000);
+    return { success: false, message: `⏳ الحرب في مرحلة التجهيز! تبقى ${remaining} دقيقة` };
+  }
+  
+  // تحديث حالة الحرب إلى نشطة إذا لزم الأمر
+  if (war.status === 'preparing' && now >= war.startedAt) {
+    war.status = 'active';
+  }
+  
   if (now >= war.endsAt) {
     return { success: false, message: '❅ الحرب انتهت!' };
   }
@@ -293,18 +363,37 @@ function attackInWar(clan, playerId, attackPower) {
   // تحديد الفريق
   const isChallenger = war.challengerId === clan.id;
   
-  // حساب الضرر
-  let damage = Math.floor(attackPower * (0.8 + Math.random() * 0.4));
+  // جلب بيانات اللاعب وصنفه
+  const data = getRpgData();
+  const player = data.players?.[playerId];
+  const playerClass = player?.class || "محارب";
+  
+  // تطبيق تأثير الصنف
+  let damageMultiplier = 1.0;
+  if (CLASS_EFFECTS[playerClass]) {
+    damageMultiplier = CLASS_EFFECTS[playerClass].bonus;
+  }
+  
+  // حساب الضرر مع التعزيزات
+  let damage = Math.floor(attackPower * damageMultiplier * (0.8 + Math.random() * 0.4));
+  
+  // تطبيق buffs المؤقتة
+  const teamBuffs = isChallenger ? war.buffs.challenger : war.buffs.target;
+  for (const buff of teamBuffs) {
+    if (buff.type === 'attack_buff') {
+      damage = Math.floor(damage * buff.value);
+    }
+  }
   
   // تحديث الضرر
   if (isChallenger) {
     war.challengerDamage = (war.challengerDamage || 0) + damage;
     war.challengerAttacks = war.challengerAttacks || [];
-    war.challengerAttacks.push({ playerId, damage, time: now });
+    war.challengerAttacks.push({ playerId, damage, time: now, class: playerClass });
   } else {
     war.targetDamage = (war.targetDamage || 0) + damage;
     war.targetAttacks = war.targetAttacks || [];
-    war.targetAttacks.push({ playerId, damage, time: now });
+    war.targetAttacks.push({ playerId, damage, time: now, class: playerClass });
   }
   
   saveDatabase();
@@ -312,7 +401,8 @@ function attackInWar(clan, playerId, attackPower) {
   return {
     success: true,
     damage,
-    totalDamage: isChallenger ? war.challengerDamage : war.targetDamage
+    totalDamage: isChallenger ? war.challengerDamage : war.targetDamage,
+    classEffect: damageMultiplier > 1 ? `🎯 تأثير الصنف: x${damageMultiplier}` : ''
   };
 }
 
@@ -327,13 +417,48 @@ function endWar(war) {
   const challengerClan = data.clans?.[war.challengerId];
   const targetClan = data.clans?.[war.targetId];
   
+  // حساب نسبة التدمير
+  const totalDamage = (war.challengerDamage || 0) + (war.targetDamage || 0);
+  let challengerDestruction = 0;
+  let targetDestruction = 0;
+  
+  if (totalDamage > 0) {
+    challengerDestruction = Math.min(100, Math.floor((war.challengerDamage / totalDamage) * 100));
+    targetDestruction = Math.min(100, Math.floor((war.targetDamage / totalDamage) * 100));
+  }
+  
   // تحديد الفائز
   const challengerWon = war.challengerDamage > war.targetDamage;
+  
+  // حساب الغنائم (نسبة من ذهب وإكسير الخاسر)
+  const lootGold = challengerWon 
+    ? Math.floor((targetClan?.gold || 0) * 0.1) 
+    : Math.floor((challengerClan?.gold || 0) * 0.1);
+  const lootElixir = challengerWon 
+    ? Math.floor((targetClan?.elixir || 0) * 0.1) 
+    : Math.floor((challengerClan?.elixir || 0) * 0.1);
+  
+  // تحديد MVP (أعلى ضرر)
+  const allAttacks = [...(war.challengerAttacks || []), ...(war.targetAttacks || [])];
+  let mvp = null;
+  let maxDamage = 0;
+  
+  for (const attack of allAttacks) {
+    if (attack.damage > maxDamage) {
+      maxDamage = attack.damage;
+      mvp = attack;
+    }
+  }
   
   if (challengerWon) {
     if (challengerClan) {
       challengerClan.wins = (challengerClan.wins || 0) + 1;
-      challengerClan.gold = (challengerClan.gold || 0) + war.prizePool;
+      challengerClan.gold = (challengerClan.gold || 0) + war.prizePool + lootGold;
+      // نهب الموارد
+      if (targetClan) {
+        targetClan.gold = Math.max(0, (targetClan.gold || 0) - lootGold);
+        targetClan.elixir = Math.max(0, (targetClan.elixir || 0) - lootElixir);
+      }
     }
     if (targetClan) {
       targetClan.losses = (targetClan.losses || 0) + 1;
@@ -341,7 +466,12 @@ function endWar(war) {
   } else {
     if (targetClan) {
       targetClan.wins = (targetClan.wins || 0) + 1;
-      targetClan.gold = (targetClan.gold || 0) + war.prizePool;
+      targetClan.gold = (targetClan.gold || 0) + war.prizePool + lootGold;
+      // نهب الموارد
+      if (challengerClan) {
+        challengerClan.gold = Math.max(0, (challengerClan.gold || 0) - lootGold);
+        challengerClan.elixir = Math.max(0, (challengerClan.elixir || 0) - lootElixir);
+      }
     }
     if (challengerClan) {
       challengerClan.losses = (challengerClan.losses || 0) + 1;
@@ -351,12 +481,12 @@ function endWar(war) {
   // إنهاء الحرب
   if (challengerClan) {
     challengerClan.wars.warHistory = challengerClan.wars.warHistory || [];
-    challengerClan.wars.warHistory.push(war);
+    challengerClan.wars.warHistory.push({ ...war, endedAt: Date.now() });
     challengerClan.wars.currentWar = null;
   }
   if (targetClan) {
     targetClan.wars.warHistory = targetClan.wars.warHistory || [];
-    targetClan.wars.warHistory.push(war);
+    targetClan.wars.warHistory.push({ ...war, endedAt: Date.now() });
     targetClan.wars.currentWar = null;
   }
   
@@ -364,12 +494,122 @@ function endWar(war) {
   
   return {
     winner: challengerWon ? war.challengerName : war.targetName,
-    prize: war.prizePool
+    winnerId: challengerWon ? war.challengerId : war.targetId,
+    loserId: challengerWon ? war.targetId : war.challengerId,
+    prize: war.prizePool + lootGold,
+    lootGold,
+    lootElixir,
+    challengerDestruction,
+    targetDestruction,
+    mvp: mvp ? { playerId: mvp.playerId, damage: mvp.damage, class: mvp.class } : null
   };
 }
 
 function formatWarMessage(war, prefix) {
-  return `⚔️ *بدأت الحرب!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 استخدموا:\n${prefix}هجوم_حرب للهجوم!`;
+  const now = Date.now();
+  const isPreparing = now < war.prepEndTime;
+  
+  if (isPreparing) {
+    const remaining = Math.ceil((war.prepEndTime - now) / 60000);
+    return `⚔️ *مرحلة التجهيز!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n⏳ الوقت المتبقي للتجهيز: ${remaining} دقيقة\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ مدة الحرب: 30 دقيقة\n\n📚 استعدوا وادعوا أعضاء الكلان!\n🎯 ستبدأ المعركة تلقائياً بعد انتهاء التجهيز`;
+  }
+  
+  const remaining = Math.max(0, war.endsAt - now);
+  const mins = Math.floor(remaining / 60000);
+  const secs = Math.floor((remaining % 60000) / 1000);
+  
+  return `⚔️ *بدأت الحرب!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n\n🎯 استخدموا:\n${prefix}هجوم_حرب للهجوم!`;
+}
+
+// دالة لحساب سعة الجيش بناءً على مستوى المبنى
+function getArmyCapacity(buildingLevel) {
+  return buildingLevel * 20;
+}
+
+// دالة لتدريب الجنود
+function trainSoldiers(player, clan, amount) {
+  const playerClass = player.class || "محارب";
+  const soldierType = SOLDIER_TYPES[playerClass] || "infantry";
+  const soldierName = SOLDIER_NAMES[soldierType];
+  
+  let buildingLevel = 1;
+  if (soldierType === "infantry") {
+    buildingLevel = clan.settlement?.buildings?.barracks?.level || 1;
+  } else if (soldierType === "archer") {
+    buildingLevel = clan.settlement?.buildings?.archeryRange?.level || 1;
+  } else if (soldierType === "cavalry") {
+    buildingLevel = clan.settlement?.buildings?.stable?.level || 1;
+  }
+  
+  const maxCapacity = getArmyCapacity(buildingLevel);
+  const currentSoldiers = player.soldiers || 0;
+  
+  if (currentSoldiers + amount > maxCapacity) {
+    return {
+      success: false,
+      message: `❌ سعة الجيش ممتلئة!\n📊 الحالي: ${currentSoldiers}/${maxCapacity}\n💡 قم بترقية المبنى لزيادة السعة`
+    };
+  }
+  
+  player.soldiers = (player.soldiers || 0) + amount;
+  player.soldierType = soldierType;
+  saveDatabase();
+  
+  return {
+    success: true,
+    message: `✅ تم تدريب ${amount} من وحدة [${soldierName}]!\n📊 السعة: ${player.soldiers}/${maxCapacity}`
+  };
+}
+
+// دالة لشراء عناصر المتجر الحربي
+function buyWarItem(player, itemName) {
+  if (!WAR_ITEMS[itemName]) {
+    return { success: false, message: '❌ العنصر غير موجود في المتجر الحربي!' };
+  }
+  
+  const item = WAR_ITEMS[itemName];
+  
+  if ((player.gold || 0) < item.cost) {
+    return { success: false, message: `❌ لا تملك ذهب كافٍ!\n💰 المطلوب: ${item.cost}` };
+  }
+  
+  player.gold -= item.cost;
+  player.warBuffs = player.warBuffs || [];
+  player.warBuffs.push({
+    type: item.type,
+    value: item.value,
+    duration: item.duration,
+    expiresAt: Date.now() + (item.duration || 0),
+    purchasedAt: Date.now()
+  });
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    message: `✅ تم شراء [${itemName}] بنجاح!\n🎯 سيُفعّل تلقائياً عند دخول الحرب`
+  };
+}
+
+// دالة لعرض ترتيب الكلانات
+function getClanRankings() {
+  const data = getRpgData();
+  const clans = Object.values(data.clans || {});
+  
+  clans.sort((a, b) => (b.wins || 0) - (a.wins || 0));
+  
+  const topClans = clans.slice(0, 10);
+  
+  let rankingText = "🏆 **ترتيب الكلانات الأسطوري** 🏆\n\n";
+  
+  for (let i = 0; i < topClans.length; i++) {
+    const clan = topClans[i];
+    rankingText += `${i + 1}. 🛡️ **${clan.name}** #${clan.clanTag}\n`;
+    rankingText += `   ✅ انتصارات: ${clan.wins || 0} | ❌ هزائم: ${clan.losses || 0}\n`;
+    rankingText += `   👥 أعضاء: ${clan.members?.length || 0} | ⭐ مستوى: ${clan.level || 1}\n\n`;
+  }
+  
+  return rankingText;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -390,7 +630,10 @@ export default {
     'الحرب', 'war', 'حربي',
     'التحديات', 'challenges',
     'الكلانات', 'clanslist',
-    'نقل_كلان', 'transferclan'
+    'نقل_كلان', 'transferclan',
+    'تدريب', 'train',
+    'شراء_حرب', 'buywar',
+    'ترتيب_كلان', 'clanrank'
   ],
 
   async execute(sock, msg, ctx) {
@@ -764,6 +1007,49 @@ export default {
       return sock.sendMessage(from, {
         text: `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n👑 • • ✤ تم نقل القيادة! ✤ • • 👑\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n│ 🏰 الكلان: ${clan.name}\n│ 👑 القائد السابق: ${result.message.split('\n')[1].replace('👑 من: ', '')}\n│ 👑 القائد الجديد: ${result.message.split('\n')[2].replace('👑 إلى: ', '')}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n> \`بــوت :\`\n> _*『 FATIMA 』*_\n━─━••❁⊰｢ ❀｣⊱❁••━─━`
       });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // تدريب الجنود
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['تدريب', 'train'].includes(command)) {
+      const player = data.players?.[sender];
+      if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      const amount = parseInt(args[0]) || 10;
+      const result = trainSoldiers(player, clan, amount);
+
+      return sock.sendMessage(from, { text: result.message });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // شراء عناصر حرب
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['شراء_حرب', 'buywar'].includes(command)) {
+      const player = data.players?.[sender];
+      if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+      const itemName = args.join(' ');
+      if (!itemName) {
+        const items = Object.keys(WAR_ITEMS).join(' | ');
+        return sock.sendMessage(from, { 
+          text: `🛒 المتجر الحربي:\n\n${items}\n\n💡 استخدم: ${prefix}شراء_حرب <اسم العنصر>` 
+        });
+      }
+
+      const result = buyWarItem(player, itemName);
+      return sock.sendMessage(from, { text: result.message });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ترتيب الكلانات
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['ترتيب_كلان', 'clanrank'].includes(command)) {
+      const ranking = getClanRankings();
+      return sock.sendMessage(from, { text: ranking });
     }
   }
 };
