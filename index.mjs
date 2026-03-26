@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { loadPlugins, execCmd } from './lib/loader.mjs';
 import { getDatabase, saveDatabase, getRpgData } from './lib/database.mjs';
 import { initScheduler } from './lib/scheduler.mjs';
+import { initAI, generateResponse, learnFromMessage, askAI, enableAIForGroup, disableAIForGroup, getAIStatus } from './lib/ai.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -355,6 +356,9 @@ async function start() {
       
       // تهيئة المجدول
       initScheduler(sock);
+      
+      // تهيئة الذكاء الاصطناعي
+      await initAI();
     }
   });
 
@@ -455,6 +459,17 @@ async function start() {
             isOwner, command: cmd.toLowerCase(), args, text, prefix, quoted, msg 
           };
           await execCmd(sock, msg, ctx);
+        } else {
+          // تعلم من رسالة العضو للذكاء الاصطناعي
+          if (isGroup && body) {
+            learnFromMessage(sender, pushName, body, from);
+            
+            // محاولة توليد رد ذكي
+            const aiResponse = await generateResponse(msg, from, sender, pushName);
+            if (aiResponse) {
+              await sock.sendMessage(from, { text: aiResponse });
+            }
+          }
         }
       } catch (e) { console.error('❌', e.message); }
     }
