@@ -22,6 +22,13 @@ function getClanBuff(level) {
   };
 }
 
+function isClanLeader(clan, senderId) {
+  if (!clan || !senderId) return false;
+  const senderNum = senderId.replace('@s.whatsapp.net', '');
+  const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
+  return senderNum === leaderNum;
+}
+
 function createClan(groupId, name, leaderId, leaderName) {
   const data = getRpgData();
   
@@ -56,7 +63,7 @@ function createClan(groupId, name, leaderId, leaderName) {
       resources: { gold: 500, elixir: 250 }
     },
     
-    wars: { wins: 0, losses: 0, currentWar: null },
+    wars: { wins: 0, losses: 0, currentWar: null, pendingChallenges: [] },
     
     wins: 0,
     losses: 0,
@@ -136,6 +143,11 @@ function getAvailableClans(excludeId) {
     }));
 }
 
+function getPendingChallenges(groupId) {
+  const clan = getClan(groupId);
+  return clan?.wars?.pendingChallenges || [];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚔️ نظام الحروب
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -150,22 +162,77 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
   if (targetClan.wars?.currentWar) return { success: false, message: '❅ الكلان المستهدف في حرب!' };
   
   // التحقق من كون المستخدم قائد
-  if (challengerClan.leader !== challengerId) {
+  if (!isClanLeader(challengerClan, challengerId)) {
     return { success: false, message: '❌ للقائد فقط!' };
   }
   
-  // إنشاء الحرب
-  const war = {
-    id: `war_${Date.now()}`,
+  const warId = `war_${Date.now()}`;
+  
+  // إنشاء التحدي
+  const challenge = {
+    id: warId,
     challengerId: challengerClan.id,
     challengerName: challengerClan.name,
     challengerTag: challengerClan.clanTag,
     targetId: targetClanId,
     targetName: targetClan.name,
     targetTag: targetClan.clanTag,
+    prizePool: Math.floor((challengerClan.gold || 0) * 0.1) + 500,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 5 * 60 * 1000 // 5 دقائق للقبول
+  };
+  
+  // إضافة التحدي للكلان المستهدف
+  targetClan.wars = targetClan.wars || {};
+  targetClan.wars.pendingChallenges = targetClan.wars.pendingChallenges || [];
+  targetClan.wars.pendingChallenges.push(challenge);
+  
+  saveDatabase();
+  
+  return {
+    success: true,
+    challenge,
+    challengerName: challengerClan.name,
+    targetName: targetClan.name,
+    prizePool: challenge.prizePool
+  };
+}
+
+function acceptChallenge(clan, challengeId, senderId) {
+  if (!isClanLeader(clan, senderId)) {
+    return { success: false, message: '❌ للقائد فقط!' };
+  }
+  
+  const challenges = clan.wars?.pendingChallenges || [];
+  const challenge = challenges.find(c => c.id === challengeId);
+  
+  if (!challenge) {
+    return { success: false, message: '❌ التحدي غير موجود!' };
+  }
+  
+  if (Date.now() > challenge.expiresAt) {
+    return { success: false, message: '❅ انتهت صلاحية التحدي!' };
+  }
+  
+  const data = getRpgData();
+  const challengerClan = data.clans?.[challenge.challengerId];
+  
+  if (!challengerClan) {
+    return { success: false, message: '❌ الكلان المتحدي غير موجود!' };
+  }
+  
+  // إنشاء الحرب
+  const war = {
+    id: challenge.id,
+    challengerId: challenge.challengerId,
+    challengerName: challenge.challengerName,
+    challengerTag: challenge.challengerTag,
+    targetId: clan.id,
+    targetName: clan.name,
+    targetTag: clan.clanTag,
     challengerDamage: 0,
     targetDamage: 0,
-    prizePool: Math.floor((challengerClan.gold || 0) * 0.1) + 500,
+    prizePool: challenge.prizePool,
     startedAt: Date.now(),
     endsAt: Date.now() + 30 * 60 * 1000, // 30 دقيقة
     status: 'active',
@@ -173,21 +240,17 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
     targetAttacks: []
   };
   
+  // تحديث الحالة
   challengerClan.wars = challengerClan.wars || {};
   challengerClan.wars.currentWar = war;
   
-  targetClan.wars = targetClan.wars || {};
-  targetClan.wars.currentWar = war;
+  clan.wars = clan.wars || {};
+  clan.wars.currentWar = war;
+  clan.wars.pendingChallenges = challenges.filter(c => c.id !== challengeId);
   
   saveDatabase();
   
-  return {
-    success: true,
-    war,
-    challengerName: challengerClan.name,
-    targetName: targetClan.name,
-    prizePool: war.prizePool
-  };
+  return { success: true, war };
 }
 
 function attackInWar(clan, playerId, attackPower) {
@@ -278,6 +341,10 @@ function endWar(war) {
     winner: challengerWon ? war.challengerName : war.targetName,
     prize: war.prizePool
   };
+}
+
+function formatWarMessage(war, prefix) {
+  return `⚔️ *بدأت الحرب!*\n\n🏰 ${war.challengerName} VS ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 استخدموا:\n${prefix}هجوم_حرب للهجوم!`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -491,140 +558,126 @@ export default {
       const result = challengeClan(clan, targetClan.id, sender);
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
+
       // إرسال إعلان للكلان المستهدف
       try {
         await sock.sendMessage(targetClan.id, {
-          text: `⚔️ *تحدي حرب!*
+          text: `⚔️ *تحدي حرب!*\n\n🏰 ${result.challengerName} يتحدى كلانكم!\n\n💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n💡 استخدم ${prefix}التحديات لعرض التحديات\n💡 ${prefix}قبول_التحدي <رقم> للقبول`
+        });
+      } catch (e) {}
 
-🏰 ${result.challengerName} يتحدى كلانكم!
-
-💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب
-⏰ المدة: 30 دقيقة
-
-
-⏰ ينتظر موافقة قائد ${result.targetName} (5 دقائق)` });
+      return sock.sendMessage(from, {
+        text: `⚔️ تم إرسال تحدي!\n\n🏰 ${result.challengerName} VS 🏰 ${result.targetName}\n\n💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n⏳ ينتظر موافقة قائد ${result.targetName}`
+      });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
     // التحديات المعلقة
-    // ═══════════════════════════════════════════════════════════════════════════
     if (['التحديات', 'challenges'].includes(command)) {
       const challenges = getPendingChallenges(from);
       if (challenges.length === 0) return sock.sendMessage(from, { text: '✅ لا توجد تحديات معلقة!' });
 
-      const list = challenges.map(c =>
-        `⚔️ ${c.challengerName} يتحداك!\n💰 الجائزة: ${c.prizePool.toLocaleString()}\n🆔 ${c.id}`
+      const list = challenges.map((c, i) =>
+        `${i + 1}. ⚔️ ${c.challengerName} يتحداك!\n💰 الجائزة: ${c.prizePool.toLocaleString()}\n🆔 ${c.id}`
       ).join('\n\n');
 
       return sock.sendMessage(from, { text: `📜 التحديات المعلقة:\n\n${list}\n\n✅ ${prefix}قبول_التحدي <الرقم>\n❌ ${prefix}رفض_التحدي <الرقم>` });
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
     // قبول التحدي
-    // ═══════════════════════════════════════════════════════════════════════════
     if (['قبول_التحدي', 'accept'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
-      
-      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
-      const senderNum = sender.replace('@s.whatsapp.net', '');
-      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
-      const isLeader = senderNum === leaderNum;
-      
-      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
 
-      const challengeId = args[0];
-      if (!challengeId) return sock.sendMessage(from, { text: '❌ حدد رقم التحدي!\n💡 استخدم: .قبول_التحدي war_XXXXXXXXXXX' });
-
-      // معالجة معرف التحدي - قد يأتي بصيغ مختلفة
-      let fullChallengeId = challengeId;
-      if (!challengeId.startsWith('war_')) {
-        // إذا كان المستخدم أدخل فقط الأرقام، نحاول البحث عن تحدي يطابقها
-        const challenges = getPendingChallenges(from);
-        const found = challenges.find(c => c.id.endsWith(challengeId) || c.id === challengeId);
-        if (found) {
-          fullChallengeId = found.id;
-        } else {
-          // محاولة إنشاء المعرف الكامل
-          fullChallengeId = `war_${challengeId.replace('war_', '')}`;
-        }
+      if (!isClanLeader(clan, sender)) {
+        return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
       }
 
-      const result = await acceptChallenge(fullChallengeId, sender, sock);
+      const challengeId = args[0];
+      if (!challengeId) {
+        return sock.sendMessage(from, { text: `❌ حدد رقم التحدي!\n💡 استخدم: ${prefix}قبول_التحدي <الرقم>` });
+      }
+
+      const challenges = getPendingChallenges(from);
+      let challengeIndex = parseInt(challengeId) - 1;
+      
+      if (isNaN(challengeIndex) || challengeIndex < 0 || challengeIndex >= challenges.length) {
+        return sock.sendMessage(from, { text: '❌ رقم التحدي غير صحيح!' });
+      }
+
+      const challenge = challenges[challengeIndex];
+      const result = acceptChallenge(clan, challenge.id, sender);
+      
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
-      // إرسال إعلان للحرب
-      const warMsg = formatWarForChannel(result.war);
-      // يمكن إرسال للقناة هنا
-
-🎯 استخدموا:
-${prefix}هجوم_حرب للهجوم!`
-        });
-      } catch {}
- main
+      const warMsg = formatWarMessage(result.war, prefix);
+      
+      try {
+        await sock.sendMessage(result.war.challengerId, { text: warMsg });
+        await sock.sendMessage(result.war.targetId, { text: warMsg });
+      } catch (e) {}
 
       return sock.sendMessage(from, {
-        text: `⚔️ تم إرسال تحدي!
-
-🏰 ${result.challengerName} VS 🏰 ${result.targetName}
-
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // رفض التحدي
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['رفض_التحدي', 'reject'].includes(command)) {
-      const clan = getClan(from);
-      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
-      
-      // التحقق من أن المستخدم هو القائد (مع معالجة جميع الصيغ الممكنة)
-      const senderNum = sender.replace('@s.whatsapp.net', '');
-      const leaderNum = String(clan.leader || '').replace('@s.whatsapp.net', '');
-      const isLeader = senderNum === leaderNum;
-      
-      if (!isLeader) return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
-
-💰 جائزة الفوز: ${result.prizePool.toLocaleString()} ذهب
- main
-
-⏰ المدة: 30 دقيقة
-
-🎯 اهجم الآن: ${prefix}هجوم_حرب`
+        text: `⚔️ قبلت التحدي!\n\n🏰 ${result.war.challengerName} VS 🏰 ${result.war.targetName}\n\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 اهجم الآن: ${prefix}هجوم_حرب`
       });
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // رفض التحدي
+    if (['رفض_التحدي', 'reject'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      if (!isClanLeader(clan, sender)) {
+        return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+      }
+
+      const challengeId = args[0];
+      if (!challengeId) {
+        return sock.sendMessage(from, { text: `❌ حدد رقم التحدي!\n💡 استخدم: ${prefix}رفض_التحدي <الرقم>` });
+      }
+
+      const challenges = getPendingChallenges(from);
+      let challengeIndex = parseInt(challengeId) - 1;
+      
+      if (isNaN(challengeIndex) || challengeIndex < 0 || challengeIndex >= challenges.length) {
+        return sock.sendMessage(from, { text: '❌ رقم التحدي غير صحيح!' });
+      }
+
+      const challenge = challenges[challengeIndex];
+      
+      clan.wars.pendingChallenges = challenges.filter(c => c.id !== challenge.id);
+      saveDatabase();
+
+      return sock.sendMessage(from, {
+        text: `❌ تم رفض تحدي من ${challenge.challengerName}`
+      });
+    }
+
     // الهجوم في الحرب
-    // ═════════════════════════════════════════════════════════════════════════
     if (['هجوم_حرب', 'attack', 'هجوم'].includes(command)) {
       const player = data.players?.[sender];
       if (!player) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const clan = getClan(from);
       const war = getActiveWar(from);
-      
+
       if (!war) {
         return sock.sendMessage(from, { text: '❌ لا توجد حرب نشطة!' });
       }
 
-      // التحقق من انتهاء الحرب
       if (Date.now() >= war.endsAt) {
         const result = endWar(war);
         return sock.sendMessage(from, {
-          text: `🏁 انتهت الحرب!
-
-🏆 الفائز: ${result.winner}
-💰 الجائزة: ${result.prize?.toLocaleString()} ذهب`
+          text: `🏁 انتهت الحرب!\n\n🏆 الفائز: ${result.winner}\n💰 الجائزة: ${result.prize?.toLocaleString()} ذهب`
         });
       }
 
-      // التحقق من التهدئة
       const now = Date.now();
       const lastAttack = player.lastWarAttack || 0;
       if (now - lastAttack < 30000) {
         const remaining = Math.ceil((30000 - (now - lastAttack)) / 1000);
         return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} ثانية!` });
       }
-      
+
       player.lastWarAttack = now;
 
       const result = attackInWar(clan, sender, player.atk);
@@ -632,24 +685,16 @@ ${prefix}هجوم_حرب للهجوم!`
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // حساب الوقت المتبقي
       const remaining = Math.max(0, war.endsAt - Date.now());
       const mins = Math.floor(remaining / 60000);
       const secs = Math.floor((remaining % 60000) / 1000);
 
       return sock.sendMessage(from, {
-        text: `⚔️ هجوم ناجح!
-
-💥 ضررك: ${result.damage}
-📊 ضرر فريقك: ${result.totalDamage.toLocaleString()}
-
-⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}`
+        text: `⚔️ هجوم ناجح!\n\n💥 ضررك: ${result.damage}\n📊 ضرر فريقك: ${result.totalDamage.toLocaleString()}\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}`
       });
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
     // حالة الحرب
-    // ═════════════════════════════════════════════════════════════════════════
     if (['الحرب', 'war', 'حربي'].includes(command)) {
       const war = getActiveWar(from);
       if (!war) return sock.sendMessage(from, { text: '❌ لا توجد حرب نشطة!' });
@@ -658,7 +703,6 @@ ${prefix}هجوم_حرب للهجوم!`
       const mins = Math.floor(remaining / 60000);
       const secs = Math.floor((remaining % 60000) / 1000);
 
-      // تحديد فريق المستخدم
       const isChallenger = war.challengerId === from;
       const myDamage = isChallenger ? war.challengerDamage : war.targetDamage;
       const enemyDamage = isChallenger ? war.targetDamage : war.challengerDamage;
@@ -666,15 +710,7 @@ ${prefix}هجوم_حرب للهجوم!`
       const enemyName = isChallenger ? war.targetName : war.challengerName;
 
       return sock.sendMessage(from, {
-        text: `⚔️ حالة الحرب
-
-🏰 ${myName}: ${myDamage?.toLocaleString() || 0} ضرر
-🏰 ${enemyName}: ${enemyDamage?.toLocaleString() || 0} ضرر
-
-⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}
-💰 الجائزة: ${war.prizePool?.toLocaleString() || 0} ذهب
-
-🎯 ${prefix}هجوم_حرب`
+        text: `⚔️ حالة الحرب\n\n🏰 ${myName}: ${myDamage?.toLocaleString() || 0} ضرر\n🏰 ${enemyName}: ${enemyDamage?.toLocaleString() || 0} ضرر\n\n⏱️ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}\n💰 الجائزة: ${war.prizePool?.toLocaleString() || 0} ذهب\n\n🎯 ${prefix}هجوم_حرب`
       });
     }
   }
