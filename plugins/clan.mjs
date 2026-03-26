@@ -12,7 +12,7 @@ import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
 const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
 const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
-let CHANNEL_JID = null; // سيتم تعيينه عند بدء التشغيل
+const CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🏗️ تعريفات المباني - نظام المستوطنة
@@ -402,7 +402,7 @@ function getAvailableClans(excludeId) {
 // ⚔️ نظام الحروب
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function challengeClan(challengerClan, targetClanId, challengerId) {
+async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
   const data = getRpgData();
   const targetClan = data.clans?.[targetClanId];
   
@@ -444,6 +444,17 @@ function challengeClan(challengerClan, targetClanId, challengerId) {
   
   saveDatabase();
   
+  // إرسال رسالة للقناة عند بداية التحدي
+  if (CHANNEL_JID && sock) {
+    try {
+      await sock.sendMessage(CHANNEL_JID, { 
+        text: `⚔️ *تحدي جديد!*\\n\\n🏰 الكلان ${challengerClan.name} يتحدى الكلان ${targetClan.name}!\\n\\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب\\n⏳ ينتظر الموافقة...`
+      });
+    } catch (err) {
+      console.error('❌ خطأ في إرسال رسالة التحدي للقناة:', err.message);
+    }
+  }
+
   return {
     success: true,
     challenge,
@@ -1019,7 +1030,7 @@ export default {
 
       if (!targetClan) return sock.sendMessage(from, { text: '❌ الكلان غير موجود!' });
 
-      const result = challengeClan(clan, targetClan.id, sender);
+      const result = await challengeClan(clan, targetClan.id, sender, sock);
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
 
