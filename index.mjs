@@ -332,7 +332,7 @@ async function start() {
       
       // عرض معلومات القنوات التي يتواجد فيها البوت وتعيين JID القناة
       try {
-        const allChats = await sock.chats.all();
+        const allChats = Object.values(sock.chats);
         const channels = allChats.filter(chat => chat.id.endsWith('@newsletter'));
         if (channels.length > 0) {
           console.log('\n📢 القنوات المتواجدة فيها:');
