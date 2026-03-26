@@ -359,15 +359,38 @@ async function start() {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // مراقبة رسائل القنوات
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
       try {
+        // التحقق من الرسائل الواردة من القنوات
+        const from = msg.key.remoteJid;
+        if (from && from.endsWith('@newsletter')) {
+          try {
+            const channelInfo = await sock.newsletterMetadata('jid', from);
+            if (channelInfo) {
+              console.log(`\n📢 رسالة جديدة من القناة:`);
+              console.log(`   الاسم: ${channelInfo.name}`);
+              console.log(`   JID: ${from}`);
+              console.log(`   المحتوى: ${JSON.stringify(msg.message).substring(0, 100)}...`);
+              
+              // حفظ JID القناة في بلاجن الكلان
+              const clanPlugin = plugins.find(p => p.name === 'clan');
+              if (clanPlugin && clanPlugin.exports.setChannelJid) {
+                clanPlugin.exports.setChannelJid(from);
+                console.log(`✅ تم تعيين JID القناة لبلاجن الكلان: ${from}`);
+              }
+            }
+          } catch (err) {
+            console.error('❌ خطأ في جلب معلومات القناة:', err.message);
+          }
+        }
+        
         if (!msg.message || msg.key.fromMe) continue;
         const db = getDatabase();
         db.stats.messages = (db.stats.messages || 0) + 1;
 
-        const from = msg.key.remoteJid;
         const isGroup = from?.endsWith('@g.us');
         const sender = isGroup ? msg.key.participant : from;
         const pushName = msg.pushName || 'مستخدم';
