@@ -362,10 +362,26 @@ export default {
     const selectedSection = args[0]?.toLowerCase();
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // 📋 عرض جميع الأوامر (عند استخدام: .جميع أو .all أو .الكل)
+    // 📋 عرض جميع الأوامر بالتفصيل (عند استخدام: .جميع أو .all أو .الكل)
     // ═══════════════════════════════════════════════════════════════════════════
     if (selectedSection === 'جميع' || selectedSection === 'all' || selectedSection === 'الكل') {
-      let allCommandsText = `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n📜 *جَمِيعْ أَوَامِرْ بَوت فَاطِمَة*\n⏱️ النشاط: ${uptime}\n\n· · • • ✤「①」✤ • • · ·\n${p}أوامر rpg - نظام الألعاب 🎮\n\n· · • • ✤「②」✤ • • · ·\n${p}أوامر skills - المهارات ⚡\n\n· · • • ✤「③」✤ • • · ·\n${p}أوامر settlement - مستوطنة الكلان 🏰\n\n· · • • ✤「④」✤ • • · ·\n${p}أوامر territory - صراع الأقاليم 🗺️\n\n· · • • ✤「⑤」✤ • • · ·\n${p}أوامر boss - الزعماء 👹\n\n· · • • ✤「⑥」✤ • • · ·\n${p}أوامر quests - المهام 📜\n\n· · • • ✤「⑦」✤ • • · ·\n${p}أوامر clans - إدارة الكلان 👥\n\n· · • • ✤「⑧」✤ • • · ·\n${p}أوامر war - حروب الكلانات ⚔️\n\n· · • • ✤「⑨」✤ • • · ·\n${p}أوامر market - السوق 🛒\n\n· · • • ✤「⑩」✤ • • · ·\n${p}أوامر ai - الذكاء الاصطناعي 🤖\n\n· · • • ✤「⑪」✤ • • · ·\n${p}أوامر group - الجروب 👥\n\n· · • • ✤「⑫」✤ • • · ·\n${p}أوامر sticker - الملصقات 🎨\n\n· · • • ✤「⑬」✤ • • · ·\n${p}أوامر tools - الأدوات 🛠️\n\n· · • • ✤「⑭」✤ • • · ·\n${p}أوامر download - التحميلات 📥\n\n· · • • ✤「⑮」✤ • • · ·\n${p}أوامر owner - المالك 👑\n\n> بوت :\n> _*『 FATIMA 』*_\n━─━••❁⊰｢ ❀｣⊱❁••━─━`;
+      let allCommandsText = `@\n━─━••❁⊰｢❀｣⊱❁••━─━\n\n📜 *جَمِيعْ أَوَامِرْ بَوت فَاطِمَة - القائمة الكاملة*\n⏱️ النشاط: ${uptime}\n\n`;
+      
+      // دمج جميع القوائم
+      const sectionsOrder = ['rpg', 'skills', 'settlement', 'territory', 'boss', 'quests', 'clans', 'war', 'market', 'ai', 'sticker', 'tools', 'download', 'group', 'owner'];
+      
+      for (const section of sectionsOrder) {
+        if (menus[section]) {
+          // إزالة التوقيع السفلي من كل قائمة لتجنب التكرار
+          let sectionContent = menus[section](p);
+          // حذف آخر 3 أسطر (التوقيع) من كل قسم
+          const lines = sectionContent.split('\n');
+          const trimmedLines = lines.slice(0, -3);
+          allCommandsText += trimmedLines.join('\n') + '\n\n';
+        }
+      }
+      
+      allCommandsText += `> \`بــوت :\`\n> _*『 FATIMA 』*_\n━─━••❁⊰｢ ❀｣⊱❁••━─━`;
 
       return await sock.sendMessage(from, { text: allCommandsText });
     }
