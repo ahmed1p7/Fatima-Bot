@@ -1052,8 +1052,8 @@ export default {
     'ترتيب_كلان', 'clanrank'
   ],
 
-  async execute(sock, msg, ctx) {
-    const { from, sender, pushName, command, args, text, prefix, isGroupAdmin, isGroup, groupMetadata } = ctx;
+    async execute(sock, msg, ctx) {
+        const { from, sender, pushName, command, args, text, prefix, isGroupAdmin, isGroup, groupMetadata } = ctx;
     const data = getRpgData();
 
     // ═════════════════════════════════════════════════════════════════════════
