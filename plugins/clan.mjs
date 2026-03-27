@@ -53,9 +53,9 @@ async function startWar(war, sock) {
   // تحديث حالة الحرب إلى نشطة
   war.status = 'active';
   
-  // جمع المشاركين من الفريقين
-  const challengerParticipants = war.challengerAttacks || [];
-  const targetParticipants = war.targetAttacks || [];
+  // جمع المشاركين من الفريقين - استخدام قائمة المشاركين المسجلة
+  const challengerParticipants = war.participants?.challenger || [];
+  const targetParticipants = war.participants?.target || [];
   
   // بناء قائمة المشاركين
   let participantsList = '';
@@ -1351,20 +1351,22 @@ export default {
           });
         }
 
-        // تسجيل المشاركة
+        // تسجيل المشاركة - استخدام war.participants
         const isChallenger = war.challengerId === from;
-        const participationList = isChallenger ? war.challengerAttacks : war.targetAttacks;
+        const participationList = isChallenger ? (war.participants.challenger || []) : (war.participants.target || []);
         
-        const existingParticipation = participationList?.find(p => p.playerId === sender);
+        const existingParticipation = participationList.find(p => p.playerId === sender);
         if (existingParticipation) {
           existingParticipation.soldiers = soldierCount;
         } else {
           if (isChallenger) {
-            war.challengerAttacks = war.challengerAttacks || [];
-            war.challengerAttacks.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
+            if (!war.participants) war.participants = {};
+            if (!war.participants.challenger) war.participants.challenger = [];
+            war.participants.challenger.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
           } else {
-            war.targetAttacks = war.targetAttacks || [];
-            war.targetAttacks.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
+            if (!war.participants) war.participants = {};
+            if (!war.participants.target) war.participants.target = [];
+            war.participants.target.push({ playerId: sender, soldiers: soldierCount, time: Date.now() });
           }
         }
 
