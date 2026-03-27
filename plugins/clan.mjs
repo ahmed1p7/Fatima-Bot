@@ -1184,7 +1184,7 @@ export default {
     // ═════════════════════════════════════════════════════════════════════════
     // تحدي كلان
     // ═════════════════════════════════════════════════════════════════════════
-    if (['تحدي', 'challenge'].includes(command)) {
+    if (['تحدي', 'حارب'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
 
