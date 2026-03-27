@@ -1030,7 +1030,6 @@ export default {
 
   getChannelJid: () => CHANNEL_JID,
   setChannelJid: (jid) => { CHANNEL_JID = jid; },
-  main,
   commands: [
     'تفعيل_الكلان', 'createclan', 'إنشاء_كلان',
     'كلان', 'clan', 'كلانات',
