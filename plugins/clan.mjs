@@ -1694,4 +1694,4 @@ export default {
       return sock.sendMessage(from, { text: ranking });
     }
   }
-};
+}
