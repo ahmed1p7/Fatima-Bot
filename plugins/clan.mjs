@@ -12,10 +12,135 @@ import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
 const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
 const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
-const CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت
+const CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت - قنا الحروب
 
 // مصفوفة لتخزين المشاركين في الحرب
 const warParticipants = new Map();
+
+// مؤقتات التقارير اللحظية للحروب
+const warReportTimers = new Map();
+
+// قائمة مرتبة للكلانات المتاحة للتحدي - تعرض الاسم، ID، المستوى
+function getRankedClansList(excludeId) {
+  const data = getRpgData();
+  return Object.entries(data.clans || {})
+    .filter(([id]) => id !== excludeId)
+    .sort((a, b) => {
+      // الترتيب حسب المستوى (تنازلي)
+      if (b[1].level !== a[1].level) return b[1].level - a[1].level;
+      // ثم حسب عدد الانتصارات
+      return (b[1].wins || 0) - (a[1].wins || 0);
+    })
+    .map(([id, clan]) => ({
+      id,
+      name: clan.name,
+      level: clan.level || 1,
+      members: clan.members?.length || 0,
+      wins: clan.wins || 0,
+      losses: clan.losses || 0,
+      clanTag: clan.clanTag
+    }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚔️ دوال بدء الحرب والتقارير اللحظية
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// دالة بدء الحرب - تُستدعى عند انتهاء فترة التجهيز
+async function startWar(war, sock) {
+  const data = getRpgData();
+  
+  // تحديث حالة الحرب إلى نشطة
+  war.status = 'active';
+  
+  // جمع المشاركين من الفريقين
+  const challengerParticipants = war.challengerAttacks || [];
+  const targetParticipants = war.targetAttacks || [];
+  
+  // بناء قائمة المشاركين
+  let participantsList = '';
+  
+  if (challengerParticipants.length > 0) {
+    participantsList += `\n🏰 *${war.challengerName}:*\n`;
+    for (const p of challengerParticipants) {
+      const playerName = data.players?.[p.playerId]?.name || 'مجهول';
+      participantsList += `   • ${playerName} (${p.soldiers || 0} جندي)\n`;
+    }
+  }
+  
+  if (targetParticipants.length > 0) {
+    participantsList += `\n🏰 *${war.targetName}:*\n`;
+    for (const p of targetParticipants) {
+      const playerName = data.players?.[p.playerId]?.name || 'مجهول';
+      participantsList += `   • ${playerName} (${p.soldiers || 0} جندي)\n`;
+    }
+  }
+  
+  if (participantsList === '') {
+    participantsList = '\n⚠️ لم يسجل أي مشارك حتى الآن!';
+  }
+  
+  // رسالة بدء الحرب
+  const warStartMsg = `⚔️ *بدأت الحرب!*\n\n🏰 *${war.challengerName}* (Lv.${war.challengerLevel})\n⚔️ ضد\n🏰 *${war.targetName}* (Lv.${war.targetLevel})\n\n📋 *المشاركون:*${participantsList}\n\n⏰ مدة الحرب: 30 دقيقة\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n\n🎯 المعركة جارية الآن!`;
+
+  // إرسال الرسالة للقناة
+  if (CHANNEL_JID && sock) {
+    try {
+      await sock.sendMessage(CHANNEL_JID, { text: warStartMsg });
+    } catch (err) {
+      console.error('❌ خطأ في إرسال رسالة بدء الحرب:', err.message);
+    }
+  }
+  
+  // بدء التقارير اللحظية كل 5 دقائق
+  startWarReports(war, sock);
+}
+
+// دالة التقارير اللحظية للحرب
+function startWarReports(war, sock) {
+  // إلغاء أي مؤقت سابق لهذه الحرب
+  if (warReportTimers.has(war.id)) {
+    clearInterval(warReportTimers.get(war.id));
+  }
+  
+  const reportInterval = setInterval(async () => {
+    const now = Date.now();
+    
+    // التحقق من انتهاء الحرب
+    if (now >= war.endsAt || war.status === 'ended') {
+      clearInterval(reportInterval);
+      warReportTimers.delete(war.id);
+      return;
+    }
+    
+    // حساب نسبة التدمير الحالية
+    const totalDamage = (war.challengerDamage || 0) + (war.targetDamage || 0);
+    let challengerPercent = 0;
+    let targetPercent = 0;
+    
+    if (totalDamage > 0) {
+      challengerPercent = Math.floor((war.challengerDamage / totalDamage) * 100);
+      targetPercent = Math.floor((war.targetDamage / totalDamage) * 100);
+    }
+    
+    // تحديد المتصدر
+    const leadingClan = war.challengerDamage > war.targetDamage ? war.challengerName : war.targetName;
+    const leadingPercent = war.challengerDamage > war.targetDamage ? challengerPercent : targetPercent;
+    
+    // رسالة التقرير
+    const reportMsg = `⚔️ *تقرير معركة لحظي*\n\n🏰 ${war.challengerName}: ${war.challengerDamage?.toLocaleString() || 0} ضرر (${challengerPercent}%)\n🏰 ${war.targetName}: ${war.targetDamage?.toLocaleString() || 0} ضرر (${targetPercent}%)\n\n📊 المتصدر: ${leadingClan} يدمر ${leadingPercent}% من العدو!\n\n⏳ الحرب مستمرة...`;
+
+    if (CHANNEL_JID && sock) {
+      try {
+        await sock.sendMessage(CHANNEL_JID, { text: reportMsg });
+      } catch (err) {
+        console.error('❌ خطأ في إرسال التقرير اللحظي:', err.message);
+      }
+    }
+  }, 5 * 60 * 1000); // كل 5 دقائق
+  
+  warReportTimers.set(war.id, reportInterval);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🏗️ تعريفات المباني - نظام المستوطنة
@@ -449,12 +574,25 @@ async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
   
   saveDatabase();
   
-  // إرسال رسالة للقناة عند بداية التحدي
+  // إرسال رسالة للقناة عند بداية التحدي - عرض مفصل مع ID والمستوى
   if (CHANNEL_JID && sock) {
     try {
-      await sock.sendMessage(CHANNEL_JID, { 
-        text: `⚔️ *تحدي جديد!*\n\n🏰 ${challengerClan.name} #${challengerClan.clanTag} (Lv.${challengerClan.level || 1})\n⚔️ يتحدى\n🏰 ${targetClan.name} #${targetClan.clanTag} (Lv.${targetClan.level || 1})\n\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب\\n⏳ ينتظر الموافقة...`
-      });
+      const challengeMsg = `⚔️ *تحدي جديد!*
+
+🏰 *الكلان المتحدي:*
+   • الاسم: ${challengerClan.name}
+   • ID: \`${challengerClan.id}\`
+   • المستوى: ${challengerClan.level || 1}
+
+⚔️ *يتحدى:*
+   • الاسم: ${targetClan.name}
+   • ID: \`${targetClanId}\`
+   • المستوى: ${targetClan.level || 1}
+
+💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب
+⏳ ينتظر الموافقة...`;
+      
+      await sock.sendMessage(CHANNEL_JID, { text: challengeMsg });
     } catch (err) {
       console.error('❌ خطأ في إرسال رسالة التحدي للقناة:', err.message);
     }
@@ -538,9 +676,22 @@ function acceptChallenge(clan, challengeId, senderId, sock) {
   // إرسال إشعار قبول التحدي للقناة
   if (CHANNEL_JID && sock) {
     try {
-      await sock.sendMessage(CHANNEL_JID, { 
-        text: `✅ *تم قبول التحدي!*\\n\\n🏰 ${challenge.challengerName} #${challenge.challengerTag} (Lv.${challenge.challengerLevel || 1})\\n⚔️ ضد\\n🏰 ${clan.name} #${clan.clanTag} (Lv.${clan.level || 1})\\n\\n⏰ ستبدأ المعركة خلال 15 دقيقة!\\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب`
-      });
+      const acceptMsg = `✅ *تم قبول التحدي!*
+
+🏰 *${challenge.challengerName}*
+   • ID: \`${challenge.challengerId}\`
+   • المستوى: ${challenge.challengerLevel || 1}
+
+⚔️ *ضد*
+
+🏰 *${clan.name}*
+   • ID: \`${clan.id}\`
+   • المستوى: ${clan.level || 1}
+
+⏰ ستبدأ المعركة خلال 15 دقيقة!
+💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب`;
+      
+      await sock.sendMessage(CHANNEL_JID, { text: acceptMsg });
     } catch (err) {
       console.error('❌ خطأ في إرسال إشعار القبول للقناة:', err.message);
     }
@@ -994,7 +1145,7 @@ export default {
     // قائمة الكلانات
     // ═════════════════════════════════════════════════════════════════════════
     if (['الكلانات', 'clanslist'].includes(command)) {
-      const clans = getAvailableClans('');
+      const clans = getRankedClansList('');
       if (clans.length === 0) return sock.sendMessage(from, { text: '❌ لا توجد كلانات!' });
 
       const list = clans.slice(0, 15).map((c, i) =>
@@ -1023,7 +1174,7 @@ export default {
 
       // إذا لم يحدد كلان، عرض القائمة
       if (!args[0]) {
-        const clans = getAvailableClans(from);
+        const clans = getRankedClansList(from);
         if (clans.length === 0) return sock.sendMessage(from, { text: '❌ لا توجد كلانات للتحدي!' });
 
         const list = clans.slice(0, 10).map((c, i) =>
@@ -1036,7 +1187,7 @@ export default {
       }
 
       // البحث عن الكلان
-      const clans = getAvailableClans(from);
+      const clans = getRankedClansList(from);
       let targetClan;
       const input = args.join(' ');
 
@@ -1108,21 +1259,20 @@ export default {
       const result = await acceptChallenge(clan, challenge.id, sender, sock);
       
       if (!result.success) return sock.sendMessage(from, { text: result.message });
-
-      // رسالة بدء الحرب مع المشاركين - ستُرسَل عند بدء الحرب الفعلية
-      const warStartMsg = `⚔️ *تم قبول التحدي!*\\n\\n🏰 ${result.war.challengerName} #${result.war.challengerTag} (Lv.${result.war.challengerLevel})\\n⚔️ ضد\\n🏰 ${result.war.targetName} #${result.war.targetTag} (Lv.${result.war.targetLevel})\\n\\n⏰ ستبدأ المعركة خلال 15 دقيقة!\\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\\n\\n📋 المشاركون سيتم تسجيلهم عند بدء الحرب\\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`;
+      // جدولة بدء الحرب بعد 15 دقيقة (فترة التجهيز)
+      const war = result.war;
+      const prepTimeMs = WAR_PREP_TIME; // 15 دقيقة
       
-      try {
-        await sock.sendMessage(result.war.challengerId, { text: warStartMsg });
-        await sock.sendMessage(result.war.targetId, { text: warStartMsg });
-      } catch (e) {}
+      setTimeout(async () => {
+        try {
+          await startWar(war, sock);
+        } catch (err) {
+          console.error('❌ خطأ في بدء الحرب:', err.message);
+        }
+      }, prepTimeMs);
 
       return sock.sendMessage(from, {
-        text: `⚔️ قبلت التحدي!\n\n🏰 ${result.war.challengerName} VS 🏰 ${result.war.targetName}\n\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`
-      });
-    }
-
-    // رفض التحدي
+        text: `⚔️ قبلت التحدي!\n\n🏰 ${war.challengerName} VS 🏰 ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n⏳ ستبدأ المعركة خلال 15 دقيقة!\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`
     if (['رفض_التحدي', 'reject'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
