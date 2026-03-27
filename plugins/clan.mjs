@@ -102,44 +102,70 @@ function startWarReports(war, sock) {
   if (warReportTimers.has(war.id)) {
     clearInterval(warReportTimers.get(war.id));
   }
-  
+
+  // إرسال تقرير فوري عند بدء الحرب
+  sendWarReport(war, sock);
+
+  // ثم إرسال تقارير كل 5 دقائق
   const reportInterval = setInterval(async () => {
+    sendWarReport(war, sock);
+
     const now = Date.now();
-    
+
     // التحقق من انتهاء الحرب
     if (now >= war.endsAt || war.status === 'ended') {
       clearInterval(reportInterval);
       warReportTimers.delete(war.id);
       return;
     }
-    
-    // حساب نسبة التدمير الحالية
-    const totalDamage = (war.challengerDamage || 0) + (war.targetDamage || 0);
-    let challengerPercent = 0;
-    let targetPercent = 0;
-    
-    if (totalDamage > 0) {
-      challengerPercent = Math.floor((war.challengerDamage / totalDamage) * 100);
-      targetPercent = Math.floor((war.targetDamage / totalDamage) * 100);
-    }
-    
-    // تحديد المتصدر
-    const leadingClan = war.challengerDamage > war.targetDamage ? war.challengerName : war.targetName;
-    const leadingPercent = war.challengerDamage > war.targetDamage ? challengerPercent : targetPercent;
-    
-    // رسالة التقرير
-    const reportMsg = `⚔️ *تقرير معركة لحظي*\n\n🏰 ${war.challengerName}: ${war.challengerDamage?.toLocaleString() || 0} ضرر (${challengerPercent}%)\n🏰 ${war.targetName}: ${war.targetDamage?.toLocaleString() || 0} ضرر (${targetPercent}%)\n\n📊 المتصدر: ${leadingClan} يدمر ${leadingPercent}% من العدو!\n\n⏳ الحرب مستمرة...`;
-
-    if (CHANNEL_JID && sock) {
-      try {
-        await sock.sendMessage(CHANNEL_JID, { text: reportMsg });
-      } catch (err) {
-        console.error('❌ خطأ في إرسال التقرير اللحظي:', err.message);
-      }
-    }
   }, 5 * 60 * 1000); // كل 5 دقائق
-  
+
   warReportTimers.set(war.id, reportInterval);
+}
+
+
+// دالة مساعدة لإرسال تقرير الحرب
+async function sendWarReport(war, sock) {
+  const now = Date.now();
+
+  // حساب نسبة التدمير الحالية
+  const totalDamage = (war.challengerDamage || 0) + (war.targetDamage || 0);
+  let challengerPercent = 0;
+  let targetPercent = 0;
+
+  if (totalDamage > 0) {
+    challengerPercent = Math.floor((war.challengerDamage / totalDamage) * 100);
+    targetPercent = Math.floor((war.targetDamage / totalDamage) * 100);
+  }
+
+  // تحديد المتصدر
+  const leadingClan = war.challengerDamage > war.targetDamage ? war.challengerName : war.targetName;
+  const leadingPercent = war.challengerDamage > war.targetDamage ? challengerPercent : targetPercent;
+
+  // الوقت المتبقي
+  const remaining = Math.max(0, war.endsAt - now);
+  const mins = Math.floor(remaining / 60000);
+  const secs = Math.floor((remaining % 60000) / 1000);
+
+  // رسالة التقرير
+  const reportMsg = `⚔️ *تقرير معركة لحظي*
+
+🏰 ${war.challengerName}: ${war.challengerDamage?.toLocaleString() || 0} ضرر (${challengerPercent}%)
+🏰 ${war.targetName}: ${war.targetDamage?.toLocaleString() || 0} ضرر (${targetPercent}%)
+
+📊 المتصدر: ${leadingClan} يدمر ${leadingPercent}% من العدو!
+
+⏳ الوقت المتبقي: ${mins}:${secs.toString().padStart(2, '0')}
+
+🎯 المعركة مستمرة...`;
+
+  if (CHANNEL_JID && sock) {
+    try {
+      await sock.sendMessage(CHANNEL_JID, { text: reportMsg });
+    } catch (err) {
+      console.error('❌ خطأ في إرسال التقرير اللحظي:', err.message);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -287,7 +313,7 @@ const BUILDINGS = {
     },
     requirements: { castle: 1 }
   }
-};
+}
 
 // أنواع الجنود حسب الأصناف
 const SOLDIER_TYPES = {
@@ -296,7 +322,7 @@ const SOLDIER_TYPES = {
   "فارس": "cavalry",
   "ساحر": "mage",
   "شافي": "healer"
-};
+}
 
 // أسماء الجنود
 const SOLDIER_NAMES = {
@@ -305,7 +331,7 @@ const SOLDIER_NAMES = {
   cavalry: "فرسان مدرعون",
   mage: "دعم سحري",
   healer: "كاهن شفاء"
-};
+}
 
 // تأثيرات الأصناف في الحرب
 const CLASS_EFFECTS = {
@@ -314,14 +340,14 @@ const CLASS_EFFECTS = {
   "فارس": { type: "tank", bonus: 0.8 },
   "ساحر": { type: "magic", bonus: 1.5 },
   "شافي": { type: "support", bonus: 0.7 }
-};
+}
 
 // عناصر المتجر الحربي
 const WAR_ITEMS = {
   "تعويذة حماية": { type: "defense_buff", value: 1.5, cost: 1000 },
   "جرعة هجومية": { type: "attack_buff", value: 1.5, cost: 1000 },
   "تعويذة تجميد": { type: "freeze", duration: 300000, cost: 2000 }
-};
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 دوال مساعدة
@@ -608,7 +634,7 @@ async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
   };
 }
 
-function acceptChallenge(clan, challengeId, senderId, sock) {
+async function acceptChallenge(clan, challengeId, senderId, sock) {
   if (!isClanLeader(clan, senderId)) {
     return { success: false, message: '❌ للقائد فقط!' };
   }
@@ -1272,7 +1298,7 @@ export default {
       }, prepTimeMs);
 
       return sock.sendMessage(from, {
-        text: `⚔️ قبلت التحدي!\n\n🏰 ${war.challengerName} VS 🏰 ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n⏳ ستبدأ المعركة خلال 15 دقيقة!\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`
+        text: `⚔️ قبلت التحدي!\n\n🏰 ${war.challengerName} VS 🏰 ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n⏳ ستبدأ المعركة خلال 15 دقيقة!\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>` });
     if (['رفض_التحدي', 'reject'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
@@ -1660,4 +1686,4 @@ export default {
       return sock.sendMessage(from, { text: ranking });
     }
   }
-};
+}
