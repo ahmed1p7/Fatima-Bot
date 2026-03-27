@@ -1,9 +1,10 @@
-```
-# Compiled and binary files
+```javascript
+# Compiled and build artifacts
 *.pyc
 __pycache__/
 *.o
 *.obj
+*.class
 *.exe
 *.dll
 *.so
@@ -18,35 +19,45 @@ venv/
 .env.local
 *.env.*
 
-# Build artifacts
+# Build directories
 dist/
 build/
 target/
-*.jar
-*.war
-*.class
+*.log
+coverage/
+htmlcov/
+.coverage
 
-# Editors and IDEs
+# Editors/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# System files
+# System
 .DS_Store
 Thumbs.db
-*.log
 
-# Caches
+# Python specific
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
 .mypy_cache/
 .pytest_cache/
-.coverage
-coverage/
-htmlcov/
-.gradle/
 
-# Compressed files
+# Node.js specific
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+node_modules/
+
+# Compression files
 *.zip
 *.gz
 *.tar

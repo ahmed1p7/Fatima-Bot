@@ -4,6 +4,7 @@
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
+import { isClanLeader } from '../lib/clan.mjs';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 ثوابت النظام
@@ -372,12 +373,12 @@ function getClanBuff(level) {
   };
 }
 
-function isClanLeader(clan, senderId) {
-  if (!clan || !senderId) return false;
-  const senderNum = String(senderId).split('@')[0];
-  const leaderNum = String(clan.leader || '').split('@')[0];
-  return senderNum === leaderNum;
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🛡️ دوال مساعدة للتحقق والتعامل مع الكلانات
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ملاحظة: تم نقل isClanLeader إلى lib/clan.mjs للاستخدام المشترك
+// الدالة المستوردة من ../lib/clan.mjs
 
 function createClan(groupId, name, leaderId, leaderName) {
   const data = getRpgData();
