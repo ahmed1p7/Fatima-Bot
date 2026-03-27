@@ -12,7 +12,7 @@ import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
 const WAR_PREP_TIME = 15 * 60 * 1000; // 15 دقيقة تجهيز
 const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
-const CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت - قنا الحروب
+let CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت - قنا الحروب
 
 // مصفوفة لتخزين المشاركين في الحرب
 const warParticipants = new Map();
@@ -112,10 +112,15 @@ function startWarReports(war, sock) {
 
     const now = Date.now();
 
-    // التحقق من انتهاء الحرب
+    // التحقق من انتهاء الحرب وإنهائها تلقائياً
     if (now >= war.endsAt || war.status === 'ended') {
       clearInterval(reportInterval);
       warReportTimers.delete(war.id);
+      
+      // إنهاء الحرب إذا انتهت المدة
+      if (war.status !== 'ended' && sock) {
+        await endWar(war, sock);
+      }
       return;
     }
   }, 5 * 60 * 1000); // كل 5 دقائق
@@ -1022,6 +1027,7 @@ function getClanRankings() {
 
 export default {
   name: 'Clan',
+  getChannelJid: () => CHANNEL_JID, // دالة للحصول على JID القناة
   setChannelJid: (jid) => { CHANNEL_JID = jid; }, // دالة لتعيين JID القناة
   commands: [
     'تفعيل_الكلان', 'createclan', 'إنشاء_كلان',
