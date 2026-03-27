@@ -1027,8 +1027,13 @@ function getClanRankings() {
 
 export default {
   name: 'Clan',
+
   getChannelJid: () => CHANNEL_JID,
   setChannelJid: (jid) => { CHANNEL_JID = jid; },
+
+  getChannelJid: () => CHANNEL_JID, // دالة للحصول على JID القناة
+  setChannelJid: (jid) => { CHANNEL_JID = jid; }, // دالة لتعيين JID القناة
+  main
   commands: [
     'تفعيل_الكلان', 'createclan', 'إنشاء_كلان',
     'كلان', 'clan', 'كلانات',
