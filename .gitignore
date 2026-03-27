@@ -5,7 +5,6 @@ node_modules/
 # Logs and temp files
 *.log
 *.tmp
-*.swp
 
 # Environment
 .env
@@ -21,16 +20,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-*.so
 
-# Build directories
+# Build artifacts
 dist/
 build/
-target/
-out/
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
 
-# Compressed files
+# Compression
 *.zip
 *.gz
 *.tar
@@ -53,4 +55,21 @@ out/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+
+# Gradle
+.gradle/
+target/
+
+# Virtual environments
+.venv/
+venv/
 ```
