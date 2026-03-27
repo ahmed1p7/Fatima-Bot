@@ -4,6 +4,7 @@
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { clanXpForLevel, progressClanBar } from '../lib/rpg.mjs';
+import { startWarDirectly } from '../lib/clan.mjs';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔧 ثوابت النظام
@@ -1033,6 +1034,7 @@ export default {
     'رفض_التحدي', 'reject',
     'مشاركة_الحرب', 'مشاركة', 'participate',
     'الحرب', 'war', 'حربي',
+    'بدا_حرب', 'بدء_حرب', 'startwar',
     'التحديات', 'challenges',
     'الكلانات', 'clanslist',
     'نقل_كلان', 'transferclan',
@@ -1299,6 +1301,67 @@ export default {
 
       return sock.sendMessage(from, {
         text: `⚔️ قبلت التحدي!\n\n🏰 ${war.challengerName} VS 🏰 ${war.targetName}\n\n💰 جائزة الفوز: ${war.prizePool.toLocaleString()} ذهب\n⏰ المدة: 30 دقيقة\n⏳ ستبدأ المعركة خلال 15 دقيقة!\n\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>` });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // بدء حرب مباشرة بدون تحدي (بدا_حرب)
+    // ═════════════════════════════════════════════════════════════════════════
+    if (['بدا_حرب', 'بدء_حرب', 'startwar'].includes(command)) {
+      const clan = getClan(from);
+      if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
+
+      if (!isClanLeader(clan, sender)) {
+        return sock.sendMessage(from, { text: '❌ للقائد فقط!' });
+      }
+
+      // إذا لم يحدد كلان، عرض القائمة
+      if (!args[0]) {
+        const clans = getRankedClansList(from);
+        if (clans.length === 0) return sock.sendMessage(from, { text: '❌ لا توجد كلانات للتحدي!' });
+
+        const list = clans.slice(0, 10).map((c, i) =>
+          `${i + 1}. 🏰 ${c.name} #${c.clanTag} (Lv.${c.level} | ${c.members} عضو)`
+        ).join('\n');
+
+        return sock.sendMessage(from, { 
+          text: `🏰 اختر كلان لبدء الحرب:\n\n${list}\n\n💡 ${prefix}بدا_حرب <اسم الكلان أو رقم>` 
+        });
+      }
+
+      // البحث عن الكلان
+      const clans = getRankedClansList(from);
+      let targetClan;
+      const input = args.join(' ');
+
+      // البحث بالرقم أو الاسم
+      if (/^\d+$/.test(input)) {
+        targetClan = clans[parseInt(input) - 1];
+      } else {
+        targetClan = clans.find(c => 
+          c.name.toLowerCase().includes(input.toLowerCase()) ||
+          c.clanTag === input
+        );
+      }
+
+      if (!targetClan) return sock.sendMessage(from, { text: '❌ الكلان غير موجود!' });
+
+      // الحصول على بيانات الكلانات الكاملة
+      const rpgData = getRpgData();
+      const myClanFull = rpgData.clans?.[from];
+      const targetClanFull = rpgData.clans?.[targetClan.id];
+
+      if (!myClanFull || !targetClanFull) return sock.sendMessage(from, { text: '❌ خطأ في بيانات الكلان!' });
+
+      // استخدام الدالة من lib/clan.mjs
+      const result = await startWarDirectly(myClanFull, targetClanFull, sock);
+      
+      if (!result.success) return sock.sendMessage(from, { text: result.message });
+
+      return sock.sendMessage(from, {
+        text: result.message
+      });
+    }
+
     if (['رفض_التحدي', 'reject'].includes(command)) {
       const clan = getClan(from);
       if (!clan) return sock.sendMessage(from, { text: '❌ جروبك بدون كلان!' });
