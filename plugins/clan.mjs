@@ -946,9 +946,13 @@ function trainSoldiers(player, clan, amount) {
   if (soldierType === "infantry") {
     buildingLevel = clan.settlement?.buildings?.barracks?.level || 1;
   } else if (soldierType === "archer") {
-    buildingLevel = clan.settlement?.buildings?.archeryRange?.level || 1;
+    buildingLevel = clan.settlement?.buildings?.watchtower?.level || 1;
   } else if (soldierType === "cavalry") {
-    buildingLevel = clan.settlement?.buildings?.stable?.level || 1;
+    buildingLevel = clan.settlement?.buildings?.barracks?.level || 1;
+  } else if (soldierType === "mage") {
+    buildingLevel = clan.settlement?.buildings?.mageTower?.level || 1;
+  } else if (soldierType === "healer") {
+    buildingLevel = clan.settlement?.buildings?.hospital?.level || 1;
   }
   
   const maxCapacity = getArmyCapacity(buildingLevel);
@@ -1429,7 +1433,7 @@ export default {
       }
 
       // التحقق من عدد الجنود المتاح
-      const availableSoldiers = player.army?.total || 0;
+      const availableSoldiers = player.soldiers || 0;
       if (soldierCount > availableSoldiers) {
         return sock.sendMessage(from, { 
           text: `❌ ليس لديك جنود كافيين!\\n🪖 جنودك المتاحين: ${availableSoldiers}\\n💡 استخدم ${prefix}تدريب لتدريب المزيد.` 
