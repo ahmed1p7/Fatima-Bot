@@ -14,6 +14,9 @@ const WAR_DURATION = 30 * 60 * 1000;   // 30 دقيقة حرب
 const CHANNEL_URL = "https://whatsapp.com/channel/0029VbCbgwIKgsNxh9vKb01n";
 const CHANNEL_JID = "120363408713799197@newsletter"; // جيد القناة الثابت
 
+// مصفوفة لتخزين المشاركين في الحرب
+const warParticipants = new Map();
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🏗️ تعريفات المباني - نظام المستوطنة
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -426,9 +429,11 @@ async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
     challengerId: challengerClan.id,
     challengerName: challengerClan.name,
     challengerTag: challengerClan.clanTag,
+    challengerLevel: challengerClan.level || 1,
     targetId: targetClanId,
     targetName: targetClan.name,
     targetTag: targetClan.clanTag,
+    targetLevel: targetClan.level || 1,
     prizePool: Math.floor((challengerClan.gold || 0) * 0.1) + 500,
     createdAt: Date.now(),
     prepEndTime: prepEndTime,
@@ -448,7 +453,7 @@ async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
   if (CHANNEL_JID && sock) {
     try {
       await sock.sendMessage(CHANNEL_JID, { 
-        text: `⚔️ *تحدي جديد!*\\n\\n🏰 الكلان ${challengerClan.name} يتحدى الكلان ${targetClan.name}!\\n\\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب\\n⏳ ينتظر الموافقة...`
+        text: `⚔️ *تحدي جديد!*\n\n🏰 ${challengerClan.name} #${challengerClan.clanTag} (Lv.${challengerClan.level || 1})\n⚔️ يتحدى\n🏰 ${targetClan.name} #${targetClan.clanTag} (Lv.${targetClan.level || 1})\n\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب\\n⏳ ينتظر الموافقة...`
       });
     } catch (err) {
       console.error('❌ خطأ في إرسال رسالة التحدي للقناة:', err.message);
@@ -465,7 +470,7 @@ async function challengeClan(challengerClan, targetClanId, challengerId, sock) {
   };
 }
 
-function acceptChallenge(clan, challengeId, senderId) {
+function acceptChallenge(clan, challengeId, senderId, sock) {
   if (!isClanLeader(clan, senderId)) {
     return { success: false, message: '❌ للقائد فقط!' };
   }
@@ -494,9 +499,11 @@ function acceptChallenge(clan, challengeId, senderId) {
     challengerId: challenge.challengerId,
     challengerName: challenge.challengerName,
     challengerTag: challenge.challengerTag,
+    challengerLevel: challenge.challengerLevel || 1,
     targetId: clan.id,
     targetName: clan.name,
     targetTag: clan.clanTag,
+    targetLevel: challenge.targetLevel || 1,
     challengerDamage: 0,
     targetDamage: 0,
     prizePool: challenge.prizePool,
@@ -507,6 +514,10 @@ function acceptChallenge(clan, challengeId, senderId) {
     status: 'preparing', // حالة التجهيز
     challengerAttacks: [],
     targetAttacks: [],
+    participants: {
+      challenger: [],
+      target: []
+    },
     events: [],
     buffs: {
       challenger: [],
@@ -523,6 +534,17 @@ function acceptChallenge(clan, challengeId, senderId) {
   clan.wars.pendingChallenges = challenges.filter(c => c.id !== challengeId);
   
   saveDatabase();
+  
+  // إرسال إشعار قبول التحدي للقناة
+  if (CHANNEL_JID && sock) {
+    try {
+      await sock.sendMessage(CHANNEL_JID, { 
+        text: `✅ *تم قبول التحدي!*\\n\\n🏰 ${challenge.challengerName} #${challenge.challengerTag} (Lv.${challenge.challengerLevel || 1})\\n⚔️ ضد\\n🏰 ${clan.name} #${clan.clanTag} (Lv.${clan.level || 1})\\n\\n⏰ ستبدأ المعركة خلال 15 دقيقة!\\n💰 جائزة الفوز: ${challenge.prizePool.toLocaleString()} ذهب`
+      });
+    } catch (err) {
+      console.error('❌ خطأ في إرسال إشعار القبول للقناة:', err.message);
+    }
+  }
   
   return { success: true, war, prepTime: WAR_PREP_TIME / 60000 };
 }
@@ -1083,15 +1105,16 @@ export default {
       }
 
       const challenge = challenges[challengeIndex];
-      const result = acceptChallenge(clan, challenge.id, sender);
+      const result = await acceptChallenge(clan, challenge.id, sender, sock);
       
       if (!result.success) return sock.sendMessage(from, { text: result.message });
 
-      const warMsg = formatWarMessage(result.war, prefix);
+      // رسالة بدء الحرب مع المشاركين - ستُرسَل عند بدء الحرب الفعلية
+      const warStartMsg = `⚔️ *تم قبول التحدي!*\\n\\n🏰 ${result.war.challengerName} #${result.war.challengerTag} (Lv.${result.war.challengerLevel})\\n⚔️ ضد\\n🏰 ${result.war.targetName} #${result.war.targetTag} (Lv.${result.war.targetLevel})\\n\\n⏰ ستبدأ المعركة خلال 15 دقيقة!\\n💰 جائزة الفوز: ${result.war.prizePool.toLocaleString()} ذهب\\n\\n📋 المشاركون سيتم تسجيلهم عند بدء الحرب\\n🎯 استخدم: ${prefix}مشاركة_الحرب <عدد الجنود>`;
       
       try {
-        await sock.sendMessage(result.war.challengerId, { text: warMsg });
-        await sock.sendMessage(result.war.targetId, { text: warMsg });
+        await sock.sendMessage(result.war.challengerId, { text: warStartMsg });
+        await sock.sendMessage(result.war.targetId, { text: warStartMsg });
       } catch (e) {}
 
       return sock.sendMessage(from, {
