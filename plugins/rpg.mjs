@@ -19,7 +19,15 @@ import { sendImage, sendBossImage } from '../lib/utils/image.mjs';
 // 📊 دالة مساعدة للاعب
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function getPlayer(data, sender) {
+function getPlayer(data, sender, groupId = null) {
+  // إذا كان groupId موجود، نبحث عن اللاعب في هذا القروب
+  if (groupId) {
+    const groupPlayerKey = `${groupId}_${sender}`;
+    if (data.players?.[groupPlayerKey]) {
+      return data.players[groupPlayerKey];
+    }
+  }
+  // البحث عن اللاعب بدون groupId
   return data.players?.[sender] || null;
 }
 
@@ -92,7 +100,7 @@ export default {
   ],
 
   async execute(sock, msg, ctx) {
-    const { from, sender, pushName, command, args, text, prefix, quoted, isGroup } = ctx;
+    const { from, sender, pushName, command, args, text, prefix, quoted, isGroup, isAdmin, isOwner } = ctx;
     let data = getRpgData();
     if (!data.players) data.players = {};
 
@@ -100,24 +108,35 @@ export default {
     // تسجيل
     // ═════════════════════════════════════════════════════════════════════════
     if (['تسجيل', 'register'].includes(command)) {
-      if (data.players[sender]) {
-        return sock.sendMessage(from, { text: '❌ مسجل بالفعل! استخدم .ملفي لمشاهدة ملفك' });
+      // التحقق من أن الأمر في قروب وأن المستخدم مشرف أو مالك
+      if (!isGroup) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر يعمل في القروبات فقط!' });
+      }
+      
+      if (!isAdmin && !isOwner) {
+        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
       }
 
-      const cls = args[0];
-      if (!cls) {
+      // التحقق من وجود منشن
+      const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+      if (!mentionedJid) {
         return sock.sendMessage(from, {
           text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
-🎭 • • ✤ اختر صنفك ✤ • • 🎭
+🎭 • • ✤ تسجيل لاعب جديد ✤ • • 🎭
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+💡 الاستخدام:
+${prefix}تسجيل @المنشن <اللقب> <الصنف>
+
+أمثلة:
+${prefix}تسجيل @احمد زازا فارس
+${prefix}تسجيل @محمد بطل محارب
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+الأصناف المتاحة:
 ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡️${c.def} ❤️${c.hp}`).join('\n')}
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-💡 ${prefix}تسجيل <الصنف>
-مثال: ${prefix}تسجيل محارب
 
 > \`بــوت :\`
 > _*『 FATIMA 』*_
@@ -125,13 +144,33 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
         });
       }
 
+      const nickname = args[0];
+      const cls = args[1];
+
+      if (!nickname || !cls) {
+        return sock.sendMessage(from, { text: '❌ يرجى تحديد اللقب والصنف!\nمثال: .تسجيل @احمد زازا فارس' });
+      }
+
       if (!CLASSES[cls]) {
-        return sock.sendMessage(from, { text: '❌ صنف غير موجود! اختر من القائمة أعلاه' });
+        return sock.sendMessage(from, { 
+          text: `❌ صنف غير موجود! اختر من:\n${Object.keys(CLASSES).join(' | ')}` 
+        });
+      }
+
+      // استخدام المنشن كمعرّف للاعب بدلاً من sender
+      const playerId = mentionedJid;
+      
+      // إنشاء مفتاح فريد لكل قروب + لاعب
+      const groupPlayerKey = `${from}_${playerId}`;
+      if (data.players[groupPlayerKey]) {
+        return sock.sendMessage(from, { text: '❌ هذا اللاعب مسجل بالفعل في هذا القروب!' });
       }
 
       const classData = CLASSES[cls];
-      data.players[sender] = createNewPlayer(sender, pushName, cls);
-      data.players[sender].inventory = ['جرعة صغيرة', 'خريطة كنز'];
+      data.players[groupPlayerKey] = createNewPlayer(playerId, nickname, cls);
+      data.players[groupPlayerKey].inventory = ['جرعة صغيرة', 'خريطة كنز'];
+      data.players[groupPlayerKey].groupId = from;
+      data.players[groupPlayerKey].groupNickname = nickname;
       
       saveDatabase();
 
@@ -142,7 +181,8 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
 🎉 • • ✤ تم التسجيل! ✤ • • 🎉
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-│ ${classData.emoji} ${pushName}
+│ ${classData.emoji} ${nickname}
+│ 👤 المنشن: ${mentionedJid.split('@')[0]}
 │ 🎭 الصنف: ${cls}
 │ ⚔️ الهجوم: ${classData.atk}
 │ 🛡️ الدفاع: ${classData.def}
@@ -158,7 +198,8 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
 
 > \`بــوت :\`
 > _*『 FATIMA 』*_
-━─━••❁⊰｢ ❀｣⊱❁••━─━`
+━─━••❁⊰｢ ❀｣⊱❁••━─━`,
+        mentions: [mentionedJid]
       });
     }
 
@@ -222,7 +263,15 @@ ${prefix}تسجيل <الصنف>
     // الملف الشخصي
     // ═════════════════════════════════════════════════════════════════════════
     if (['ملف', 'ملفي', 'profile', 'شخصية'].includes(command)) {
-      const p = getPlayer(data, sender);
+      // البحث عن اللاعب في هذا القروب أولاً
+      const groupPlayerKey = `${from}_${sender}`;
+      let p = data.players[groupPlayerKey];
+      
+      // إذا لم يوجد، نبحث عن لاعب عام (بدون groupId)
+      if (!p) {
+        p = getPlayer(data, sender, from);
+      }
+      
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
 
       const classEmoji = CLASSES[p.class]?.emoji || '🎮';
@@ -237,7 +286,7 @@ ${prefix}تسجيل <الصنف>
     // مستواي
     // ═════════════════════════════════════════════════════════════════════════
     if (['مستواي', 'level'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const xpNeeded = xpForLevel(p.level);
@@ -255,7 +304,7 @@ ${prefix}تسجيل <الصنف>
     // طاقتي
     // ═════════════════════════════════════════════════════════════════════════
     if (['طاقتي', 'stamina'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const maxStamina = p.maxStamina || 10;
@@ -305,7 +354,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // هجوم / قتال
     // ═════════════════════════════════════════════════════════════════════════
     if (['هجوم', 'قتال', 'fight', 'attack'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       if (p.hp < p.maxHp * 0.2) {
@@ -368,7 +417,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // تحدي PvP
     // ═════════════════════════════════════════════════════════════════════════
     if (['تحدي', 'challenge'].includes(command)) {
-      const p1 = getPlayer(data, sender);
+      const p1 = getPlayer(data, sender, from);
       if (!p1) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const tid = quoted?.mentionedJid?.[0];
@@ -415,7 +464,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // علاج
     // ═════════════════════════════════════════════════════════════════════════
     if (['علاج', 'heal'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       if (p.hp >= p.maxHp) {
@@ -438,7 +487,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // يومي
     // ═════════════════════════════════════════════════════════════════════════
     if (['يومي', 'daily'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const now = Date.now();
@@ -472,7 +521,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // عمل
     // ═════════════════════════════════════════════════════════════════════════
     if (['عمل', 'work'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const now = Date.now();
@@ -493,7 +542,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // صيد
     // ═════════════════════════════════════════════════════════════════════════
     if (['صيد', 'fish'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const now = Date.now();
@@ -519,7 +568,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // تعدين
     // ═════════════════════════════════════════════════════════════════════════
     if (['تعدين', 'mine'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const now = Date.now();
@@ -545,7 +594,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // رصيد
     // ═════════════════════════════════════════════════════════════════════════
     if (['رصيد', 'balance'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       return sock.sendMessage(from, {
@@ -557,7 +606,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // صناديقي
     // ═════════════════════════════════════════════════════════════════════════
     if (['صناديقي', 'boxes'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const boxes = p.boxes || { common: 0, rare: 0, epic: 0, legendary: 0 };
@@ -578,7 +627,7 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
     // فتح صندوق
     // ═════════════════════════════════════════════════════════════════════════
     if (['فتح_صندوق', 'openbox'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const boxType = args[0]?.toLowerCase();
@@ -617,7 +666,7 @@ ${result.levelUp ? `🎉 مستوى جديد! ${result.levelUp.newLevel}` : ''}`
     // مهاراتي
     // ═════════════════════════════════════════════════════════════════════════
     if (['مهاراتي', 'myskills'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const display = formatPlayerSkills(p);
@@ -628,7 +677,7 @@ ${result.levelUp ? `🎉 مستوى جديد! ${result.levelUp.newLevel}` : ''}`
     // شجرة المهارات
     // ═════════════════════════════════════════════════════════════════════════
     if (['شجرة', 'skilltree'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const display = formatSkillTree(p);
@@ -639,7 +688,7 @@ ${result.levelUp ? `🎉 مستوى جديد! ${result.levelUp.newLevel}` : ''}`
     // فتح مهارة
     // ═════════════════════════════════════════════════════════════════════════
     if (['مهارة', 'skill'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const skillName = args.join(' ');
@@ -662,7 +711,7 @@ ${result.levelUp ? `🎉 مستوى جديد! ${result.levelUp.newLevel}` : ''}`
     // نقاط القدرة
     // ═════════════════════════════════════════════════════════════════════════
     if (['نقاط', 'points'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const stat = args[0]?.toLowerCase();
@@ -709,7 +758,7 @@ ${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLoca
     // قتال الزعيم
     // ═════════════════════════════════════════════════════════════════════════
     if (['قتال_الزعيم', 'bossfight'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const result = registerForBoss(p);
@@ -722,7 +771,7 @@ ${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLoca
     // هجوم زعيم
     // ═════════════════════════════════════════════════════════════════════════
     if (['هجوم_زعيم', 'attackboss'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const result = attackBoss(p);
@@ -785,7 +834,7 @@ ${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLoca
     // هدية
     // ═════════════════════════════════════════════════════════════════════════
     if (['هدية', 'gift'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       const targetId = quoted?.mentionedJid?.[0];
@@ -823,7 +872,7 @@ ${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLoca
     // مخزون
     // ═════════════════════════════════════════════════════════════════════════
     if (['مخزون', 'inventory'].includes(command)) {
-      const p = getPlayer(data, sender);
+      const p = getPlayer(data, sender, from);
       if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
       p.weapons = p.weapons || [];
