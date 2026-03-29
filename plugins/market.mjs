@@ -1,13 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🛒 أوامر السوق المفتوح
+// 🛒 أوامر السوق المفتوح - فاطمة بوت
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
-import { getSellPrice } from '../lib/rpg.mjs';
 import {
   createOffer, buyFromMarket, cancelOffer,
-  getMarketOffers, getMyOffers, generatePurchaseCode,
-  formatOfferForChannel, MARKET_CHANNEL
+  getMarketOffers, getMyOffers,
+  formatOfferForChannel, MARKET_CHANNEL, cleanExpiredOffers
 } from '../lib/market.mjs';
 
 export default {
@@ -25,6 +24,9 @@ export default {
     const { from, sender, pushName, command, args, text, prefix } = ctx;
     const data = getRpgData();
     const player = data.players?.[sender];
+
+    // تنظيف العروض المنتهية (مرة واحدة عند بدء الأمر)
+    cleanExpiredOffers();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // عرض السوق
@@ -123,16 +125,23 @@ ${offersList}
       }
 
       const item = allItems[itemNum - 1];
+      if (!item) return sock.sendMessage(from, { text: '❌ العنصر غير موجود!' });
 
       // إنشاء العرض
       const result = createOffer(sender, pushName, { id: item.id, name: item.fullName }, price);
-
       if (!result.success) {
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // تنسيق رسالة العرض
+      // إرسال إعلان في قناة السوق
       const offerMsg = formatOfferForChannel(result.offer);
+      try {
+        if (MARKET_CHANNEL) {
+          await sock.sendMessage(MARKET_CHANNEL, { text: offerMsg });
+        }
+      } catch (e) {
+        console.error('❌ فشل إرسال إعلان السوق:', e.message);
+      }
 
       return sock.sendMessage(from, { text: `✅ تم إنشاء عرضك!
 
@@ -153,24 +162,20 @@ ${offerMsg}
         return sock.sendMessage(from, { text: `❌ حدد كود الشراء!\n💡 ${prefix}شراء_سوق B-ABC\n📋 ${prefix}السوق - لمعرفة الأكواد` });
       }
 
-      // رسالة قابلة للتحديث
-      let message = await sock.sendMessage(from, { text: '⏳ جاري المعالجة...' });
-
       const result = buyFromMarket(sender, pushName, code);
-
       if (!result.success) {
         return sock.sendMessage(from, { text: result.message });
       }
 
-      // إرسال رسالة للمشتري
+      // إرسال رسالة نجاح للمشتري
       await sock.sendMessage(from, {
         text: `✅ تم الشراء بنجاح!
 
 🎁 حصلت على: ${result.item.fullName}
 💰 دفعت: ${result.price.toLocaleString()} ذهب
+💸 رسوم السوق: ${result.fee.toLocaleString()} ذهب
 
-📊 ${result.item.atk ? `⚔️ ${result.item.atk}` : `🛡️ ${result.item.def}`}`,
-        edit: message.key
+📊 ${result.item.atk ? `⚔️ ${result.item.atk}` : `🛡️ ${result.item.def}`}`
       });
 
       // إرسال إشعار للبائع في الخاص
@@ -179,12 +184,14 @@ ${offerMsg}
           text: `💰 تم بيع عنصرك!
 
 📦 ${result.item.fullName}
-💵 بمبلغ: ${result.price.toLocaleString()} ذهب
+💵 المبلغ: ${result.price.toLocaleString()} ذهب
+💸 رسوم السوق: ${result.fee.toLocaleString()} ذهب
+💰 صافي ربحك: ${(result.price - result.fee).toLocaleString()} ذهب
 
 👤 المشتري: ${pushName}`
         });
       } catch (e) {
-        // قد يكون البائع مغلق الخاص
+        // البائع قد يكون مغلق الخاص
       }
 
       return;
@@ -205,9 +212,10 @@ ${offerMsg}
         const typeEmoji = item.type === 'weapon' ? '⚔️' : '🛡️';
         const remaining = Math.max(0, o.expiresAt - Date.now());
         const hours = Math.floor(remaining / 3600000);
+        const minutes = Math.floor((remaining % 3600000) / 60000);
 
         return `${i + 1}. ${typeEmoji} ${item.fullName}
-   💰 ${o.price.toLocaleString()} | ⏰ ${hours}س
+   💰 ${o.price.toLocaleString()} | ⏰ ${hours}س ${minutes}د
    🆔 ${o.code}`;
       }).join('\n\n');
 
@@ -224,7 +232,7 @@ ${offerMsg}
       }
 
       const result = cancelOffer(sender, code);
-      return sock.sendMessage(from, { text: result.success ? result.message : result.message });
+      return sock.sendMessage(from, { text: result.message });
     }
   }
 };
