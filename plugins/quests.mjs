@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📜 أوامر المهام والإنجازات
+// 📜 أوامر المهام والإنجازات - فاطمة بوت v13.0
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase } from '../lib/database.mjs';
 import { 
-  createPlayerQuests, updateQuestProgress, claimQuestReward, resetExpiredQuests,
-  formatQuestsDisplay, formatAchievementsDisplay, getQuestStats
+  getPlayerQuests, updateQuestProgress, claimQuestReward,
+  formatQuests, formatAchievements, getQuestStats, checkAchievements
 } from '../lib/quests.mjs';
 
 export default {
@@ -29,33 +29,35 @@ export default {
       return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
     }
 
-    // التأكد من وجود المهام
-    if (!player.quests) {
-      player.quests = createPlayerQuests();
-      saveDatabase();
-    }
-
-    // إعادة تعيين المهام المنتهية
-    resetExpiredQuests(player);
-
     // ═══════════════════════════════════════════════════════════════════════════
-    // عرض المهام
+    // عرض المهام (يتم إنشاء المهام تلقائياً إذا لم تكن موجودة عبر getPlayerQuests)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['مهام', 'quests', 'مهامي'].includes(command)) {
-      const display = formatQuestsDisplay(player);
+      // getPlayerQuests يقوم بتهيئة المهام وإعادة تعيين المنتهية تلقائياً
+      const quests = getPlayerQuests(player);
+      const display = formatQuests(player);
+      saveDatabase(); // حفظ أي تغييرات حدثت أثناء التهيئة
       return sock.sendMessage(from, { text: display });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // عرض الإنجازات
+    // عرض الإنجازات (مع التحقق من الإنجازات الجديدة أولاً)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['إنجازات', 'achievements'].includes(command)) {
-      const display = formatAchievementsDisplay(player);
+      // التحقق من الإنجازات الجديدة قبل العرض
+      const newAchievements = checkAchievements(player);
+      if (newAchievements.length > 0) {
+        // إرسال إشعار بالإنجازات الجديدة
+        const achievementText = newAchievements.map(a => `${a.emoji} ${a.name}: ${a.description}`).join('\n');
+        await sock.sendMessage(from, { text: `🏅 إنجازات جديدة!\n\n${achievementText}` });
+      }
+      const display = formatAchievements(player);
+      saveDatabase();
       return sock.sendMessage(from, { text: display });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // المطالبة بمكافأة
+    // المطالبة بمكافأة مهمة
     // ═══════════════════════════════════════════════════════════════════════════
     if (['مطالبة', 'claim'].includes(command)) {
       const questId = args[0];
@@ -63,24 +65,27 @@ export default {
       if (!questId) {
         // عرض المهام المكتملة المتاحة للمطالبة
         let msg = `🎁 المهام المكتملة:\n\n`;
-
+        
+        // جلب المهام الحالية (يتم تحديثها تلقائياً)
+        const quests = getPlayerQuests(player);
+        
         const claimable = [
-          ...player.quests.daily.filter(q => q.completed && !q.claimed),
-          ...player.quests.weekly.filter(q => q.completed && !q.claimed),
-          ...player.quests.achievements.filter(q => q.completed && !q.claimed)
+          ...(quests.daily || []).filter(q => q.completed && !q.claimed),
+          ...(quests.weekly || []).filter(q => q.completed && !q.claimed),
+          ...(quests.monthly || []).filter(q => q.completed && !q.claimed)
         ];
 
         if (claimable.length === 0) {
-          msg += `❌ لا توجد مكافآت للمطالبة!\n\n`;
-          msg += `💡 أكمل المهام للحصول على مكافآت.`;
+          msg += `❌ لا توجد مكافآت للمطالبة!\n\n💡 أكمل المهام للحصول على مكافآت.`;
         } else {
           for (const quest of claimable) {
-            msg += `${quest.emoji} ${quest.name}\n`;
-            msg += `   ${quest.description}\n`;
-            msg += `   .مطالبة ${quest.id}\n\n`;
+            msg += `${quest.type.emoji} ${quest.type.name}\n`;
+            msg += `   ${quest.type.category || 'مهمة'}\n`;
+            msg += `   💰 ${quest.rewards.gold} | ⭐ ${quest.rewards.xp}\n`;
+            msg += `   🆔 ${quest.id.slice(-8)}\n\n`;
           }
+          msg += `💡 استخدم .مطالبة <الكود>`;
         }
-
         return sock.sendMessage(from, { text: msg });
       }
 
@@ -92,8 +97,6 @@ export default {
         if (result.rewards.xp) msg += `⭐ +${result.rewards.xp} XP\n`;
         if (result.rewards.gold) msg += `💰 +${result.rewards.gold} ذهب\n`;
         if (result.rewards.skillPoint) msg += `⚡ +${result.rewards.skillPoint} نقطة مهارة\n`;
-        if (result.rewards.achievement) msg += `🏅 إنجاز جديد!\n`;
-
         return sock.sendMessage(from, { text: msg });
       } else {
         return sock.sendMessage(from, { text: result.message });
@@ -101,10 +104,13 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // عرض التقدم
+    // عرض التقدم العام (إحصائيات المهام والإنجازات)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['تقدم', 'progress'].includes(command)) {
+      // التأكد من وجود المهام (لحساب الإحصائيات بشكل صحيح)
+      getPlayerQuests(player);
       const stats = getQuestStats(player);
+      saveDatabase();
 
       let msg = `📊 ═══════ تقدمك ═══════ 📊\n\n`;
 
@@ -115,6 +121,12 @@ export default {
       msg += `📆 المهام الأسبوعية:\n`;
       msg += `   مكتملة: ${stats.weeklyCompleted}/${stats.weeklyTotal}\n`;
       msg += `   مطالب بها: ${stats.weeklyClaimed}/${stats.weeklyTotal}\n\n`;
+
+      if (stats.monthlyTotal > 0) {
+        msg += `📅 المهام الشهرية:\n`;
+        msg += `   مكتملة: ${stats.monthlyCompleted}/${stats.monthlyTotal}\n`;
+        msg += `   مطالب بها: ${stats.monthlyClaimed}/${stats.monthlyTotal}\n\n`;
+      }
 
       msg += `🏅 الإنجازات:\n`;
       msg += `   مكتملة: ${stats.achievementsCompleted}/${stats.achievementsTotal}\n\n`;
