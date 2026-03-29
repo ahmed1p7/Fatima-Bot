@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 🎮 أوامر RPG الكاملة - فاطمة بوت v13.0
+// 🎮 أوامر RPG الكاملة - فاطمة بوت v13.0 (محدث)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { getRpgData, saveDatabase, createNewPlayer, CLASSES } from '../lib/database.mjs';
@@ -14,23 +14,44 @@ import {
   groupHeal, getAllBosses 
 } from '../lib/boss.mjs';
 import { sendImage, sendBossImage } from '../lib/utils/image.mjs';
+import { getClan, isClanLeader } from '../lib/clan.mjs';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📊 دالة مساعدة للاعب
+// 📊 دوال مساعدة
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function getPlayer(data, sender, groupId = null) {
-  // إذا كان groupId موجود، نبحث عن اللاعب في هذا القروب
+/**
+ * الحصول على لاعب مع مراعاة المجموعة (groupId)
+ */
+function getPlayer(data, playerId, groupId = null) {
   if (groupId) {
-    const groupPlayerKey = `${groupId}_${sender}`;
+    const groupPlayerKey = `${groupId}_${playerId}`;
     if (data.players?.[groupPlayerKey]) {
       return data.players[groupPlayerKey];
     }
   }
-  // البحث عن اللاعب بدون groupId
-  return data.players?.[sender] || null;
+  return data.players?.[playerId] || null;
 }
 
+/**
+ * تجديد طاقة اللاعب بناءً على الوقت المنقضي
+ */
+function updateStamina(player) {
+  const now = Date.now();
+  const maxStamina = player.maxStamina || 10;
+  const lastUpdate = player.lastStaminaUpdate || now;
+  const elapsed = now - lastUpdate;
+  const regen = Math.floor(elapsed / 60000); // نقطة كل دقيقة
+  if (regen > 0) {
+    player.stamina = Math.min(maxStamina, (player.stamina || 0) + regen);
+    player.lastStaminaUpdate = now;
+  }
+  return player.stamina;
+}
+
+/**
+ * تنسيق الوقت المتبقي
+ */
 function formatTime(ms) {
   const hours = Math.floor(ms / (60 * 60 * 1000));
   const mins = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
@@ -38,6 +59,57 @@ function formatTime(ms) {
   if (hours > 0) return `${hours}س ${mins}د`;
   if (mins > 0) return `${mins}د ${secs}ث`;
   return `${secs}ث`;
+}
+
+/**
+ * تجهيز سلاح أو درع
+ */
+function equipItem(player, itemType, itemIndex) {
+  const items = itemType === 'weapon' ? player.weapons : player.armors;
+  if (!items || items.length === 0) {
+    return { error: `لا تملك أي ${itemType === 'weapon' ? 'سلاح' : 'درع'}!` };
+  }
+  if (itemIndex < 1 || itemIndex > items.length) {
+    return { error: `رقم غير صحيح! اختر بين 1 و ${items.length}` };
+  }
+  const item = items[itemIndex - 1];
+  if (itemType === 'weapon') {
+    player.equippedWeapon = item;
+  } else {
+    player.equippedArmor = item;
+  }
+  return { success: true, item };
+}
+
+/**
+ * نزع المعدات
+ */
+function unequipItem(player, itemType) {
+  if (itemType === 'weapon') {
+    if (!player.equippedWeapon) return { error: 'لا يوجد سلاح مجهز!' };
+    player.equippedWeapon = null;
+  } else {
+    if (!player.equippedArmor) return { error: 'لا يوجد درع مجهز!' };
+    player.equippedArmor = null;
+  }
+  return { success: true };
+}
+
+/**
+ * بيع عنصر من المخزون
+ */
+function sellItem(player, itemIndex) {
+  const inventory = player.inventory || [];
+  if (inventory.length === 0) return { error: 'المخزون فارغ!' };
+  if (itemIndex < 1 || itemIndex > inventory.length) {
+    return { error: `رقم غير صحيح! اختر بين 1 و ${inventory.length}` };
+  }
+  const item = inventory[itemIndex - 1];
+  // سعر افتراضي حسب نوع العنصر (يمكن تحسينه)
+  const price = item.includes('جرعة') ? 20 : (item.includes('سيف') ? 100 : (item.includes('درع') ? 80 : 30));
+  player.gold = (player.gold || 0) + price;
+  player.inventory.splice(itemIndex - 1, 1);
+  return { success: true, item, price };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -59,7 +131,7 @@ export default {
     'هجوم', 'قتال', 'fight', 'attack',
     'تحدي', 'challenge',
     'علاج', 'heal',
-    'علاج_جماعي',
+    'علاج_جماعي', 'groupheal',
     
     // الموارد
     'يومي', 'daily',
@@ -104,24 +176,18 @@ export default {
     let data = getRpgData();
     if (!data.players) data.players = {};
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // تسجيل
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['تسجيل', 'register'].includes(command)) {
-      // التحقق من أن الأمر في قروب وأن المستخدم مشرف أو مالك
-      if (!isGroup) {
-        return sock.sendMessage(from, { text: '❌ هذا الأمر يعمل في القروبات فقط!' });
-      }
-      
-      if (!isAdmin && !isOwner) {
-        return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
-      }
+    try {
+      // ═════════════════════════════════════════════════════════════════════════
+      // تسجيل
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['تسجيل', 'register'].includes(command)) {
+        if (!isGroup) return sock.sendMessage(from, { text: '❌ هذا الأمر يعمل في القروبات فقط!' });
+        if (!isAdmin && !isOwner) return sock.sendMessage(from, { text: '❌ هذا الأمر للمشرفين فقط!' });
 
-      // التحقق من وجود منشن
-      const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-      if (!mentionedJid) {
-        return sock.sendMessage(from, {
-          text: `@
+        const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+        if (!mentionedJid) {
+          return sock.sendMessage(from, {
+            text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 🎭 • • ✤ تسجيل لاعب جديد ✤ • • 🎭
@@ -141,41 +207,36 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`
-        });
-      }
+          });
+        }
 
-      const nickname = args[0];
-      const cls = args[1];
+        const nickname = args[0];
+        const cls = args[1];
 
-      if (!nickname || !cls) {
-        return sock.sendMessage(from, { text: '❌ يرجى تحديد اللقب والصنف!\nمثال: .تسجيل @احمد زازا فارس' });
-      }
+        if (!nickname || !cls) {
+          return sock.sendMessage(from, { text: '❌ يرجى تحديد اللقب والصنف!\nمثال: .تسجيل @احمد زازا فارس' });
+        }
 
-      if (!CLASSES[cls]) {
-        return sock.sendMessage(from, { 
-          text: `❌ صنف غير موجود! اختر من:\n${Object.keys(CLASSES).join(' | ')}` 
-        });
-      }
+        if (!CLASSES[cls]) {
+          return sock.sendMessage(from, { text: `❌ صنف غير موجود! اختر من:\n${Object.keys(CLASSES).join(' | ')}` });
+        }
 
-      // استخدام المنشن كمعرّف للاعب بدلاً من sender
-      const playerId = mentionedJid;
-      
-      // إنشاء مفتاح فريد لكل قروب + لاعب
-      const groupPlayerKey = `${from}_${playerId}`;
-      if (data.players[groupPlayerKey]) {
-        return sock.sendMessage(from, { text: '❌ هذا اللاعب مسجل بالفعل في هذا القروب!' });
-      }
+        const playerId = mentionedJid;
+        const groupPlayerKey = `${from}_${playerId}`;
+        if (data.players[groupPlayerKey]) {
+          return sock.sendMessage(from, { text: '❌ هذا اللاعب مسجل بالفعل في هذا القروب!' });
+        }
 
-      const classData = CLASSES[cls];
-      data.players[groupPlayerKey] = createNewPlayer(playerId, nickname, cls);
-      data.players[groupPlayerKey].inventory = ['جرعة صغيرة', 'خريطة كنز'];
-      data.players[groupPlayerKey].groupId = from;
-      data.players[groupPlayerKey].groupNickname = nickname;
-      
-      saveDatabase();
+        const classData = CLASSES[cls];
+        const newPlayer = createNewPlayer(playerId, nickname, cls);
+        newPlayer.inventory = ['جرعة صغيرة', 'خريطة كنز'];
+        newPlayer.groupId = from;
+        newPlayer.groupNickname = nickname;
+        data.players[groupPlayerKey] = newPlayer;
+        saveDatabase();
 
-      return sock.sendMessage(from, {
-        text: `@
+        return sock.sendMessage(from, {
+          text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 🎉 • • ✤ تم التسجيل! ✤ • • 🎉
@@ -199,23 +260,21 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`,
-        mentions: [mentionedJid]
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // حذف التسجيل
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['حذف_تسجيل', 'deleteaccount'].includes(command)) {
-      const p = data.players[sender];
-      if (!p) {
-        return sock.sendMessage(from, { text: '❌ أنت غير مسجل أصلاً!' });
+          mentions: [mentionedJid]
+        });
       }
 
-      const confirmation = args[0];
-      if (confirmation !== 'تأكيد') {
-        return sock.sendMessage(from, {
-          text: `⚠️ • • ✤ تحذير! ✤ • • ⚠️
+      // ═════════════════════════════════════════════════════════════════════════
+      // حذف التسجيل
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['حذف_تسجيل', 'deleteaccount'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ أنت غير مسجل أصلاً!' });
+
+        const confirmation = args[0];
+        if (confirmation !== 'تأكيد') {
+          return sock.sendMessage(from, {
+            text: `⚠️ • • ✤ تحذير! ✤ • • ⚠️
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 أنت على وشك حذف حسابك!
@@ -230,17 +289,23 @@ ${Object.entries(CLASSES).map(([n, c]) => `${c.emoji} ${n} - ⚔️${c.atk} 🛡
 
 💡 للتأكيد اكتب:
 ${prefix}حذف_تسجيل تأكيد`
-        });
-      }
+          });
+        }
 
-      const playerName = p.name;
-      const classEmoji = CLASSES[p.class]?.emoji || '🎮';
+        const playerName = p.name;
+        const classEmoji = CLASSES[p.class]?.emoji || '🎮';
 
-      delete data.players[sender];
-      saveDatabase();
+        // حذف اللاعب من قاعدة البيانات
+        const groupPlayerKey = `${from}_${sender}`;
+        if (data.players[groupPlayerKey]) {
+          delete data.players[groupPlayerKey];
+        } else {
+          delete data.players[sender];
+        }
+        saveDatabase();
 
-      return sock.sendMessage(from, {
-        text: `@
+        return sock.sendMessage(from, {
+          text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 🗑️ • • ✤ تم حذف الحساب ✤ • • 🗑️
@@ -256,123 +321,116 @@ ${prefix}تسجيل <الصنف>
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // الملف الشخصي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['ملف', 'ملفي', 'profile', 'شخصية'].includes(command)) {
-      // البحث عن اللاعب في هذا القروب أولاً
-      const groupPlayerKey = `${from}_${sender}`;
-      let p = data.players[groupPlayerKey];
-      
-      // إذا لم يوجد، نبحث عن لاعب عام (بدون groupId)
-      if (!p) {
-        p = getPlayer(data, sender, from);
+        });
       }
-      
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
 
-      const classEmoji = CLASSES[p.class]?.emoji || '🎮';
-      const profileText = formatProfile(p, classEmoji);
-      
-      // إرسال مع صورة
-      await sendImage(sock, from, null, profileText);
-      return;
-    }
+      // ═════════════════════════════════════════════════════════════════════════
+      // الملف الشخصي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['ملف', 'ملفي', 'profile', 'شخصية'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً! استخدم .تسجيل <صنف>' });
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // مستواي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['مستواي', 'level'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        const classEmoji = CLASSES[p.class]?.emoji || '🎮';
+        const profileText = formatProfile(p, classEmoji);
+        // استخدام رابط افتراضي إذا كان null
+        await sendImage(sock, from, 'https://files.catbox.moe/p4mtw3.jpg', profileText);
+        return;
+      }
 
-      const xpNeeded = xpForLevel(p.level);
-      const xpBar = healthBar(p.xp, xpNeeded);
+      // ═════════════════════════════════════════════════════════════════════════
+      // مستواي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['مستواي', 'level'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      return sock.sendMessage(from, {
-        text: `🎖️ المستوى: ${p.level}
+        const xpNeeded = xpForLevel(p.level);
+        const xpBar = healthBar(p.xp, xpNeeded);
+
+        return sock.sendMessage(from, {
+          text: `🎖️ المستوى: ${p.level}
 ⭐ XP: ${p.xp}/${xpNeeded}
 📊 [${xpBar}]
 💰 الذهب: ${(p.gold || 0).toLocaleString()}`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // طاقتي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['طاقتي', 'stamina'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const maxStamina = p.maxStamina || 10;
-      const currentStamina = p.stamina || 10;
-      const staminaBar = healthBar(currentStamina, maxStamina);
-
-      return sock.sendMessage(from, {
-        text: `⚡ الطاقة: ${currentStamina}/${maxStamina}
-📊 [${staminaBar}]
-
-💡 تتجدد يومياً عند منتصف الليل`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // الرتب / المتصدرين
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['رتبتي', 'rank', 'الرتب', 'leaderboard'].includes(command)) {
-      const players = Object.values(data.players)
-        .filter(p => p && p.level)
-        .sort((a, b) => ((b.level || 1) * 1000 + (b.xp || 0)) - ((a.level || 1) * 1000 + (a.xp || 0)))
-        .slice(0, 10);
-
-      if (players.length === 0) {
-        return sock.sendMessage(from, { text: '❌ لا يوجد لاعبين!' });
+        });
       }
 
-      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+      // ═════════════════════════════════════════════════════════════════════════
+      // طاقتي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['طاقتي', 'stamina'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      return sock.sendMessage(from, {
-        text: `@
+        updateStamina(p);
+        const maxStamina = p.maxStamina || 10;
+        const currentStamina = p.stamina || 10;
+        const staminaBar = healthBar(currentStamina, maxStamina);
+
+        return sock.sendMessage(from, {
+          text: `⚡ الطاقة: ${currentStamina}/${maxStamina}
+📊 [${staminaBar}]
+
+💡 تتجدد نقطة كل دقيقة`
+        });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // الرتب / المتصدرين
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['رتبتي', 'rank', 'الرتب', 'leaderboard'].includes(command)) {
+        // نحتاج إلى قائمة اللاعبين في هذا القروب فقط (أو عام؟ نختار القروب)
+        const playersInGroup = Object.values(data.players)
+          .filter(p => p && p.level && (p.groupId === from || p.groupId === undefined));
+        const sorted = playersInGroup.sort((a, b) => ((b.level || 1) * 1000 + (b.xp || 0)) - ((a.level || 1) * 1000 + (a.xp || 0))).slice(0, 10);
+
+        if (sorted.length === 0) return sock.sendMessage(from, { text: '❌ لا يوجد لاعبين في هذا القروب!' });
+
+        const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+
+        return sock.sendMessage(from, {
+          text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 🏆 • • ✤ لوحة المتصدرين ✤ • • 🏆
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.name}\n   Lv.${p.level} | 💰 ${(p.gold || 0).toLocaleString()}`).join('\n\n')}
+${sorted.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.name}\n   Lv.${p.level} | 💰 ${(p.gold || 0).toLocaleString()}`).join('\n\n')}
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // هجوم / قتال
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['هجوم', 'قتال', 'fight', 'attack'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      if (p.hp < p.maxHp * 0.2) {
-        return sock.sendMessage(from, { text: '❌ صحة ضعيفة! استخدم .علاج أولاً' });
+        });
       }
 
-      if ((p.stamina || 0) < 1) {
-        return sock.sendMessage(from, { text: '❌ طاقة غير كافية! انتظر التجديد' });
-      }
+      // ═════════════════════════════════════════════════════════════════════════
+      // هجوم / قتال
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['هجوم', 'قتال', 'fight', 'attack'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      p.stamina--;
-      p.lastStaminaUpdate = Date.now();
+        updateStamina(p);
+        if (p.stamina < 1) return sock.sendMessage(from, { text: '❌ طاقة غير كافية! انتظر حتى تتجدد.' });
+        if (p.hp < p.maxHp * 0.2) return sock.sendMessage(from, { text: '❌ صحتك ضعيفة! استخدم .علاج أولاً' });
 
-      const result = fightMonster(p);
-      saveDatabase();
+        // الحد من الهجوم السريع
+        const now = Date.now();
+        if (p.lastAttack && (now - p.lastAttack) < 10000) {
+          const remaining = formatTime(10000 - (now - p.lastAttack));
+          return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} قبل الهجوم مرة أخرى.` });
+        }
 
-      if (result.won) {
-        let msg = `@
+        p.stamina--;
+        p.lastAttack = now;
+
+        const result = fightMonster(p);
+        saveDatabase();
+
+        if (result.won) {
+          let msg = `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 ⚔️ • • ✤ انتصار! ✤ • • ⚔️
@@ -386,60 +444,65 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
 │ 💰 +${result.rewards.gold} ذهب
 │ ⭐ +${result.rewards.xp} XP`;
 
-        if (result.levelUp) {
-          msg += `\n\n🎉 مستوى جديد! ${result.levelUp.newLevel}`;
-        }
+          if (result.levelUp) {
+            msg += `\n\n🎉 مستوى جديد! ${result.levelUp.newLevel}`;
+          }
 
-        if (result.boxDrop) {
-          const boxEmojis = { common: '⚪', rare: '🔵', epic: '🟣', legendary: '🟡' };
-          msg += `\n│ 📦 ${boxEmojis[result.boxDrop]} صندوق ${result.boxDrop}!`;
-        }
+          if (result.boxDrop) {
+            const boxEmojis = { common: '⚪', rare: '🔵', epic: '🟣', legendary: '🟡' };
+            msg += `\n│ 📦 ${boxEmojis[result.boxDrop]} صندوق ${result.boxDrop}!`;
+          }
 
-        msg += `\n
+          msg += `\n
 ⚡ طاقتك: ${p.stamina}/${p.maxStamina || 10}
 
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`;
 
-        return sock.sendMessage(from, { text: msg });
-      } else {
-        return sock.sendMessage(from, {
-          text: `💀 هُزمت بواسطة ${result.monster.emoji} ${result.monster.name}!
+          return sock.sendMessage(from, { text: msg });
+        } else {
+          return sock.sendMessage(from, {
+            text: `💀 هُزمت بواسطة ${result.monster.emoji} ${result.monster.name}!
 
 💔 HP: ${p.hp}/${p.maxHp}
 💡 استخدم .علاج لاستعادة صحتك`
-        });
-      }
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // تحدي PvP
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['تحدي', 'challenge'].includes(command)) {
-      const p1 = getPlayer(data, sender, from);
-      if (!p1) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const tid = quoted?.mentionedJid?.[0];
-      if (!tid) {
-        return sock.sendMessage(from, { text: '❌ أشر لشخص! (رد على رسالته مع ذكره)' });
+          });
+        }
       }
 
-      const p2 = getPlayer(data, tid);
-      if (!p2) {
-        return sock.sendMessage(from, { text: '❌ الشخص غير مسجل!' });
-      }
+      // ═════════════════════════════════════════════════════════════════════════
+      // تحدي PvP
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['تحدي', 'challenge'].includes(command)) {
+        const p1 = getPlayer(data, sender, from);
+        if (!p1) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      if (sender === tid) {
-        return sock.sendMessage(from, { text: '❌ لا يمكنك تحدي نفسك!' });
-      }
+        const targetId = quoted?.mentionedJid?.[0];
+        if (!targetId) {
+          return sock.sendMessage(from, { text: '❌ أشر لشخص! (رد على رسالته مع ذكره)' });
+        }
 
-      const result = pvpBattle(p1, p2);
-      p1.lastPvP = Date.now();
-      saveDatabase();
+        const p2 = getPlayer(data, targetId, from);
+        if (!p2) {
+          return sock.sendMessage(from, { text: '❌ الشخص غير مسجل في هذا القروب!' });
+        }
 
-      return sock.sendMessage(from, {
-        text: `@
+        if (sender === targetId) return sock.sendMessage(from, { text: '❌ لا يمكنك تحدي نفسك!' });
+
+        // حد زمني بين التحديات
+        const now = Date.now();
+        if (p1.lastPvP && (now - p1.lastPvP) < 300000) {
+          const remaining = formatTime(300000 - (now - p1.lastPvP));
+          return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} قبل تحدٍ جديد.` });
+        }
+
+        const result = pvpBattle(p1, p2);
+        p1.lastPvP = now;
+        saveDatabase();
+
+        return sock.sendMessage(from, {
+          text: `@
 ━─━••❁⊰｢❀｣⊱❁••━─━
 
 ⚔️ • • ✤ تحدي PvP ✤ • • ⚔️
@@ -456,202 +519,194 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
 > \`بــوت :\`
 > _*『 FATIMA 』*_
 ━─━••❁⊰｢ ❀｣⊱❁••━─━`,
-        mentions: [tid]
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // علاج
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['علاج', 'heal'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      if (p.hp >= p.maxHp) {
-        return sock.sendMessage(from, { text: '✅ صحتك كاملة بالفعل!' });
-      }
-
-      const cost = Math.floor((p.maxHp - p.hp) * 0.5);
-      if ((p.gold || 0) < cost) {
-        return sock.sendMessage(from, { text: `❌ تحتاج ${cost} ذهب للعلاج!` });
-      }
-
-      p.gold -= cost;
-      p.hp = p.maxHp;
-      saveDatabase();
-
-      return sock.sendMessage(from, { text: `💚 تم علاجك بالكامل!\n💰 -${cost} ذهب` });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // يومي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['يومي', 'daily'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const now = Date.now();
-      const lastDaily = p.lastDaily || 0;
-
-      if (now - lastDaily < 86400000) {
-        const remaining = formatTime(86400000 - (now - lastDaily));
-        return sock.sendMessage(from, { text: `⏰ ارجع بعد ${remaining}!` });
-      }
-
-      const streak = (p.dailyStreak || 0) + 1;
-      const baseBonus = 100 + p.level * 20;
-      const streakBonus = Math.min(streak * 10, 100);
-      const totalBonus = Math.floor(baseBonus * (1 + streakBonus / 100));
-
-      p.gold = (p.gold || 0) + totalBonus;
-      p.lastDaily = now;
-      p.dailyStreak = streak;
-
-      saveDatabase();
-
-      return sock.sendMessage(from, {
-        text: `🎁 الجائزة اليومية:
-
-💰 +${totalBonus} ذهب
-🔥 Streak: ${streak} يوم`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // عمل
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['عمل', 'work'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const now = Date.now();
-      if (now - (p.lastWork || 0) < 3600000) {
-        const remaining = formatTime(3600000 - (now - p.lastWork));
-        return sock.sendMessage(from, { text: `⏰ انتظر ${remaining}!` });
-      }
-
-      const result = work(p);
-      saveDatabase();
-
-      return sock.sendMessage(from, {
-        text: `${result.job.emoji} عملت كـ ${result.job.name}!\n💰 +${result.earnings} ذهب`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // صيد
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['صيد', 'fish'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const now = Date.now();
-      if (now - (p.lastFish || 0) < 30000) {
-        return sock.sendMessage(from, { text: '⏰ انتظر 30 ثانية!' });
-      }
-
-      const result = fish();
-      p.gold = (p.gold || 0) + result.price;
-      p.lastFish = now;
-      
-      if (!p.stats) p.stats = {};
-      p.stats.fishCaught = (p.stats.fishCaught || 0) + 1;
-
-      saveDatabase();
-
-      return sock.sendMessage(from, {
-        text: `🎣 صيد:\n${result.emoji} ${result.name}\n💰 ${result.price} ذهب`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // تعدين
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['تعدين', 'mine'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const now = Date.now();
-      if (now - (p.lastMine || 0) < 60000) {
-        return sock.sendMessage(from, { text: '⏰ انتظر دقيقة!' });
-      }
-
-      const result = mine();
-      p.gold = (p.gold || 0) + result.price;
-      p.lastMine = now;
-      
-      if (!p.stats) p.stats = {};
-      p.stats.mineralsMined = (p.stats.mineralsMined || 0) + 1;
-
-      saveDatabase();
-
-      return sock.sendMessage(from, {
-        text: `⛏️ تعدين:\n${result.emoji} ${result.name}\n💰 ${result.price} ذهب`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // رصيد
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['رصيد', 'balance'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      return sock.sendMessage(from, {
-        text: `💰 رصيدك: ${(p.gold || 0).toLocaleString()} ذهب`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // صناديقي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['صناديقي', 'boxes'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const boxes = p.boxes || { common: 0, rare: 0, epic: 0, legendary: 0 };
-
-      return sock.sendMessage(from, {
-        text: `📦 صناديقك:
-
-⚪ شائع: ${boxes.common || 0}
-🔵 نادر: ${boxes.rare || 0}
-🟣 ملحمي: ${boxes.epic || 0}
-🟡 أسطوري: ${boxes.legendary || 0}
-
-💡 ${prefix}فتح_صندوق <النوع>`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // فتح صندوق
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['فتح_صندوق', 'openbox'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const boxType = args[0]?.toLowerCase();
-      if (!boxType) {
-        return sock.sendMessage(from, {
-          text: `📦 أنواع الصناديق:
-⚪ شائع
-🔵 نادر
-🟣 ملحمي
-🟡 أسطوري
-
-💡 ${prefix}فتح_صندوق <النوع>`
+          mentions: [targetId]
         });
       }
 
-      const result = openBox(p, boxType);
-      if (result.error) {
-        return sock.sendMessage(from, { text: `❌ ${result.error}` });
+      // ═════════════════════════════════════════════════════════════════════════
+      // علاج
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['علاج', 'heal'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        if (p.hp >= p.maxHp) return sock.sendMessage(from, { text: '✅ صحتك كاملة!' });
+
+        const cost = Math.floor((p.maxHp - p.hp) * 0.5);
+        if ((p.gold || 0) < cost) return sock.sendMessage(from, { text: `❌ تحتاج ${cost} ذهب للعلاج!` });
+
+        p.gold -= cost;
+        p.hp = p.maxHp;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `💚 تم علاجك بالكامل!\n💰 -${cost} ذهب` });
       }
 
-      saveDatabase();
+      // ═════════════════════════════════════════════════════════════════════════
+      // علاج جماعي (لصنف الشافي)
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['علاج_جماعي', 'groupheal'].includes(command)) {
+        const healer = getPlayer(data, sender, from);
+        if (!healer) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        if (healer.class !== 'شافي') return sock.sendMessage(from, { text: '❌ فقط الشافي يستطيع استخدام العلاج الجماعي!' });
 
-      return sock.sendMessage(from, {
-        text: `📦 فتحت صندوق ${result.box.emoji} ${result.box.name}!
+        const now = Date.now();
+        if (healer.lastGroupHeal && (now - healer.lastGroupHeal) < 3600000) {
+          const remaining = formatTime(3600000 - (now - healer.lastGroupHeal));
+          return sock.sendMessage(from, { text: `⏰ انتظر ${remaining} قبل العلاج الجماعي مجدداً.` });
+        }
+
+        // علاج جميع اللاعبين في نفس القروب
+        let healedCount = 0;
+        for (const [key, player] of Object.entries(data.players)) {
+          if (player.groupId === from && player.id !== healer.id) {
+            const healAmount = Math.min(player.maxHp - player.hp, healer.mag * 3);
+            if (healAmount > 0) {
+              player.hp += healAmount;
+              healedCount++;
+            }
+          }
+        }
+
+        healer.lastGroupHeal = now;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `💚 تم شفاء ${healedCount} لاعب في المجموعة!` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // يومي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['يومي', 'daily'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const now = Date.now();
+        if (p.lastDaily && (now - p.lastDaily) < 86400000) {
+          const remaining = formatTime(86400000 - (now - p.lastDaily));
+          return sock.sendMessage(from, { text: `⏰ ارجع بعد ${remaining}!` });
+        }
+
+        const streak = (p.dailyStreak || 0) + 1;
+        const baseBonus = 100 + p.level * 20;
+        const streakBonus = Math.min(streak * 10, 100);
+        const totalBonus = Math.floor(baseBonus * (1 + streakBonus / 100));
+
+        p.gold = (p.gold || 0) + totalBonus;
+        p.lastDaily = now;
+        p.dailyStreak = streak;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `🎁 الجائزة اليومية:\n💰 +${totalBonus} ذهب\n🔥 Streak: ${streak} يوم` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // عمل
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['عمل', 'work'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const now = Date.now();
+        if (p.lastWork && (now - p.lastWork) < 3600000) {
+          const remaining = formatTime(3600000 - (now - p.lastWork));
+          return sock.sendMessage(from, { text: `⏰ انتظر ${remaining}!` });
+        }
+
+        const result = work(p);
+        p.lastWork = now;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `${result.job.emoji} عملت كـ ${result.job.name}!\n💰 +${result.earnings} ذهب` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // صيد
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['صيد', 'fish'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const now = Date.now();
+        if (p.lastFish && (now - p.lastFish) < 30000) {
+          return sock.sendMessage(from, { text: '⏰ انتظر 30 ثانية!' });
+        }
+
+        const result = fish();
+        p.gold = (p.gold || 0) + result.price;
+        p.lastFish = now;
+        if (!p.stats) p.stats = {};
+        p.stats.fishCaught = (p.stats.fishCaught || 0) + 1;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `🎣 صيد:\n${result.emoji} ${result.name}\n💰 ${result.price} ذهب` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // تعدين
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['تعدين', 'mine'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const now = Date.now();
+        if (p.lastMine && (now - p.lastMine) < 60000) {
+          return sock.sendMessage(from, { text: '⏰ انتظر دقيقة!' });
+        }
+
+        const result = mine();
+        p.gold = (p.gold || 0) + result.price;
+        p.lastMine = now;
+        if (!p.stats) p.stats = {};
+        p.stats.mineralsMined = (p.stats.mineralsMined || 0) + 1;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `⛏️ تعدين:\n${result.emoji} ${result.name}\n💰 ${result.price} ذهب` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // رصيد
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['رصيد', 'balance'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        return sock.sendMessage(from, { text: `💰 رصيدك: ${(p.gold || 0).toLocaleString()} ذهب` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // صناديقي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['صناديقي', 'boxes'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const boxes = p.boxes || { common: 0, rare: 0, epic: 0, legendary: 0 };
+        return sock.sendMessage(from, {
+          text: `📦 صناديقك:\n\n⚪ شائع: ${boxes.common || 0}\n🔵 نادر: ${boxes.rare || 0}\n🟣 ملحمي: ${boxes.epic || 0}\n🟡 أسطوري: ${boxes.legendary || 0}\n\n💡 ${prefix}فتح_صندوق <النوع>`
+        });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // فتح صندوق
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['فتح_صندوق', 'openbox'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const boxType = args[0]?.toLowerCase();
+        if (!boxType) {
+          return sock.sendMessage(from, {
+            text: `📦 أنواع الصناديق:\n⚪ شائع\n🔵 نادر\n🟣 ملحمي\n🟡 أسطوري\n\n💡 ${prefix}فتح_صندوق <النوع>`
+          });
+        }
+
+        const result = openBox(p, boxType);
+        if (result.error) return sock.sendMessage(from, { text: `❌ ${result.error}` });
+
+        saveDatabase();
+
+        return sock.sendMessage(from, {
+          text: `📦 فتحت صندوق ${result.box.emoji} ${result.box.name}!
 
 🎁 المكافآت:
 │ 💰 +${result.rewards.gold} ذهب
@@ -659,250 +714,281 @@ ${players.map((p, i) => `${medals[i]} ${CLASSES[p.class]?.emoji || '🎮'} ${p.n
 ${result.rewards.items.length > 0 ? `│ 🎒 ${result.rewards.items.join(', ')}` : ''}
 
 ${result.levelUp ? `🎉 مستوى جديد! ${result.levelUp.newLevel}` : ''}`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // مهاراتي
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['مهاراتي', 'myskills'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const display = formatPlayerSkills(p);
-      return sock.sendMessage(from, { text: display });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // شجرة المهارات
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['شجرة', 'skilltree'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const display = formatSkillTree(p);
-      return sock.sendMessage(from, { text: display });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // فتح مهارة
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['مهارة', 'skill'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const skillName = args.join(' ');
-      if (!skillName) {
-        return sock.sendMessage(from, {
-          text: `⚡ نقاط المهارة: ${p.skillPoints || 0}
-
-💡 ${prefix}مهارة <اسم_المهارة>
-💡 ${prefix}شجرة لعرض المهارات المتاحة`
         });
       }
 
-      const result = unlockSkill(p, skillName);
-      saveDatabase();
+      // ═════════════════════════════════════════════════════════════════════════
+      // مخزون
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['مخزون', 'inventory'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      return sock.sendMessage(from, { text: result.message });
-    }
+        p.weapons = p.weapons || [];
+        p.armors = p.armors || [];
+        p.inventory = p.inventory || [];
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // نقاط القدرة
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['نقاط', 'points'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        let msg = `🎒 مخزون ${p.name}:\n\n`;
 
-      const stat = args[0]?.toLowerCase();
-      const amount = parseInt(args[1]) || 1;
+        if (p.weapons.length > 0) {
+          msg += `⚔️ الأسلحة (${p.weapons.length}):\n`;
+          msg += p.weapons.map((w, i) => `  ${i + 1}. ${w.fullName || w.name} ⚔️${w.atk}`).join('\n');
+          msg += '\n\n';
+        }
 
-      if (!stat) {
+        if (p.armors.length > 0) {
+          msg += `🛡️ الدروع (${p.armors.length}):\n`;
+          msg += p.armors.map((a, i) => `  ${i + 1}. ${a.fullName || a.name} 🛡️${a.def}`).join('\n');
+          msg += '\n\n';
+        }
+
+        if (p.inventory.length > 0) {
+          msg += `📦 العناصر:\n`;
+          msg += p.inventory.map((item, i) => `  ${i + 1}. ${item}`).join('\n');
+        }
+
+        if (p.weapons.length === 0 && p.armors.length === 0 && p.inventory.length === 0) {
+          msg += '❌ المخزون فارغ!';
+        }
+
+        return sock.sendMessage(from, { text: msg });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // تجهيز
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['تجهيز', 'equip'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const type = args[0]?.toLowerCase();
+        const index = parseInt(args[1]);
+
+        if (!type || !index || !['سلاح', 'weapon', 'درع', 'armor'].includes(type)) {
+          return sock.sendMessage(from, { text: `❌ الاستخدام: ${prefix}تجهيز <سلاح|درع> <الرقم>` });
+        }
+
+        const itemType = type === 'سلاح' || type === 'weapon' ? 'weapon' : 'armor';
+        const result = equipItem(p, itemType, index);
+        if (result.error) return sock.sendMessage(from, { text: `❌ ${result.error}` });
+
+        saveDatabase();
+        return sock.sendMessage(from, { text: `✅ تم تجهيز ${result.item.fullName || result.item.name}!` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // نزع
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['نزع', 'unequip'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const type = args[0]?.toLowerCase();
+        if (!type || !['سلاح', 'weapon', 'درع', 'armor'].includes(type)) {
+          return sock.sendMessage(from, { text: `❌ الاستخدام: ${prefix}نزع <سلاح|درع>` });
+        }
+
+        const itemType = type === 'سلاح' || type === 'weapon' ? 'weapon' : 'armor';
+        const result = unequipItem(p, itemType);
+        if (result.error) return sock.sendMessage(from, { text: `❌ ${result.error}` });
+
+        saveDatabase();
+        return sock.sendMessage(from, { text: `✅ تم نزع ${itemType === 'weapon' ? 'السلاح' : 'الدرع'}!` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // بيع
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['بيع', 'sell'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const index = parseInt(args[0]);
+        if (!index) {
+          return sock.sendMessage(from, { text: `❌ الاستخدام: ${prefix}بيع <الرقم>\nاستخدم .مخزون لعرض الأرقام` });
+        }
+
+        const result = sellItem(p, index);
+        if (result.error) return sock.sendMessage(from, { text: `❌ ${result.error}` });
+
+        saveDatabase();
+        return sock.sendMessage(from, { text: `💰 بيعت ${result.item} مقابل ${result.price} ذهب!` });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // مهاراتي
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['مهاراتي', 'myskills'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const display = formatPlayerSkills(p);
+        return sock.sendMessage(from, { text: display });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // شجرة المهارات
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['شجرة', 'skilltree'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const display = formatSkillTree(p);
+        return sock.sendMessage(from, { text: display });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // فتح مهارة
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['مهارة', 'skill'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const skillName = args.join(' ');
+        if (!skillName) {
+          return sock.sendMessage(from, {
+            text: `⚡ نقاط المهارة: ${p.skillPoints || 0}\n\n💡 ${prefix}مهارة <اسم_المهارة>\n💡 ${prefix}شجرة لعرض المهارات المتاحة`
+          });
+        }
+
+        const result = unlockSkill(p, skillName);
+        saveDatabase();
+        return sock.sendMessage(from, { text: result.message });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // نقاط القدرة
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['نقاط', 'points'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const stat = args[0]?.toLowerCase();
+        const amount = parseInt(args[1]) || 1;
+
+        if (!stat) {
+          return sock.sendMessage(from, {
+            text: `⚡ نقاط القدرة: ${p.abilityPoints || 0}\n\n📊 التوزيع الحالي:\n│ ❤️ HP: +${p.allocatedStats?.hp || 0}\n│ ⚔️ ATK: +${p.allocatedStats?.atk || 0}\n│ 🛡️ DEF: +${p.allocatedStats?.def || 0}\n│ ✨ MAG: +${p.allocatedStats?.mag || 0}\n\n💡 ${prefix}نقاط <hp|atk|def|mag> [العدد]`
+          });
+        }
+
+        const result = allocateAbilityPoint(p, stat, amount);
+        saveDatabase();
+        return sock.sendMessage(from, { text: result.message });
+      }
+
+      // ═════════════════════════════════════════════════════════════════════════
+      // زعماء
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['زعماء', 'bosses'].includes(command)) {
+        const bosses = getAllBosses();
         return sock.sendMessage(from, {
-          text: `⚡ نقاط القدرة: ${p.abilityPoints || 0}
-
-📊 التوزيع الحالي:
-│ ❤️ HP: +${p.allocatedStats?.hp || 0}
-│ ⚔️ ATK: +${p.allocatedStats?.atk || 0}
-│ 🛡️ DEF: +${p.allocatedStats?.def || 0}
-│ ✨ MAG: +${p.allocatedStats?.mag || 0}
-
-💡 ${prefix}نقاط <hp|atk|def|mag> [العدد]`
+          text: `👹 • • ✤ قائمة الزعماء ✤ • • 👹\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLocaleString()} | ⚔️ ${b.atk} | 🛡️ ${b.def}`).join('\n\n')}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n💡 استخدم .قتال_الزعيم عند ظهور زعيم`
         });
       }
 
-      const result = allocateAbilityPoint(p, stat, amount);
-      saveDatabase();
+      // ═════════════════════════════════════════════════════════════════════════
+      // قتال الزعيم
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['قتال_الزعيم', 'bossfight'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-      return sock.sendMessage(from, { text: result.message });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // زعماء
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['زعماء', 'bosses'].includes(command)) {
-      const bosses = getAllBosses();
-      
-      return sock.sendMessage(from, {
-        text: `👹 • • ✤ قائمة الزعماء ✤ • • 👹
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-${bosses.map(b => `${b.emoji} ${b.name} (${b.type})\n   ❤️ ${b.baseHp.toLocaleString()} | ⚔️ ${b.atk} | 🛡️ ${b.def}`).join('\n\n')}
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-💡 استخدم .قتال_الزعيم عند ظهور زعيم`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // قتال الزعيم
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['قتال_الزعيم', 'bossfight'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const result = registerForBoss(p);
-      saveDatabase();
-
-      return sock.sendMessage(from, { text: result.message });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // هجوم زعيم
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['هجوم_زعيم', 'attackboss'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      const result = attackBoss(p);
-      saveDatabase();
-
-      if (result.error) {
-        return sock.sendMessage(from, { text: result.error });
+        const result = registerForBoss(p);
+        saveDatabase();
+        return sock.sendMessage(from, { text: result.message });
       }
 
-      if (result.defeated) {
+      // ═════════════════════════════════════════════════════════════════════════
+      // هجوم زعيم
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['هجوم_زعيم', 'attackboss'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+
+        const result = attackBoss(p);
+        saveDatabase();
+
+        if (result.error) return sock.sendMessage(from, { text: result.error });
+
+        if (result.defeated) {
+          return sock.sendMessage(from, {
+            text: `🎉 • • ✤ زعيم مهزوم! ✤ • • 🎉\n\n🏆 MVP: ${result.results.mvp?.name || 'لا يوجد'}\n👥 المشاركين: ${result.results.participants.length}\n\n🎁 الجوائز موزعة!`
+          });
+        }
+
+        const hpBar = healthBar(result.bossHp, result.bossMaxHp, 15);
         return sock.sendMessage(from, {
-          text: `🎉 • • ✤ زعيم مهزوم! ✤ • • 🎉
-
-🏆 MVP: ${result.results.mvp?.name || 'لا يوجد'}
-👥 المشاركين: ${result.results.participants.length}
-
-🎁 الجوائز موزعة!`
+          text: `⚔️ هجوم على الزعيم!\n\n💥 ضررك: ${result.damage}${result.critical ? ' 🔥 حرجة!' : ''}\n💔 ضرر الزعيم: ${result.bossDamage}\n\n❤️ HP الزعيم: ${result.bossHp.toLocaleString()}/${result.bossMaxHp.toLocaleString()}\n[${hpBar}]\n\n❤️ صحتك: ${result.playerHp}`
         });
       }
 
-      const hpBar = healthBar(result.bossHp, result.bossMaxHp, 15);
-      
-      return sock.sendMessage(from, {
-        text: `⚔️ هجوم على الزعيم!
+      // ═════════════════════════════════════════════════════════════════════════
+      // حالة الزعيم
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['حالة_زعيم', 'bossstatus'].includes(command)) {
+        const bossStatus = getBossStatus();
+        if (!bossStatus) return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط حالياً' });
 
-💥 ضررك: ${result.damage}${result.critical ? ' 🔥 حرجة!' : ''}
-💔 ضرر الزعيم: ${result.bossDamage}
-
-❤️ HP الزعيم: ${result.bossHp.toLocaleString()}/${result.bossMaxHp.toLocaleString()}
-[${hpBar}]
-
-❤️ صحتك: ${result.playerHp}`
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // حالة الزعيم
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['حالة_زعيم', 'bossstatus'].includes(command)) {
-      const bossStatus = getBossStatus();
-      
-      if (!bossStatus) {
-        return sock.sendMessage(from, { text: '❌ لا يوجد زعيم نشط حالياً' });
+        const hpBar = healthBar(bossStatus.currentHp, bossStatus.baseHp, 15);
+        return sock.sendMessage(from, {
+          text: `👹 ${bossStatus.emoji} ${bossStatus.name}\n\n❤️ HP: ${bossStatus.currentHp.toLocaleString()}/${bossStatus.baseHp.toLocaleString()}\n[${hpBar}]\n\n👥 المشاركين: ${bossStatus.participantsCount}\n📊 الحالة: ${bossStatus.status === 'registration' ? '📝 تسجيل' : '⚔️ قتال'}`
+        });
       }
 
-      const hpBar = healthBar(bossStatus.currentHp, bossStatus.baseHp, 15);
-      
-      return sock.sendMessage(from, {
-        text: `👹 ${bossStatus.emoji} ${bossStatus.name}
+      // ═════════════════════════════════════════════════════════════════════════
+      // هدية
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['هدية', 'gift'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
 
-❤️ HP: ${bossStatus.currentHp.toLocaleString()}/${bossStatus.baseHp.toLocaleString()}
-[${hpBar}]
+        const targetId = quoted?.mentionedJid?.[0];
+        const amount = parseInt(args[0]);
 
-👥 المشاركين: ${bossStatus.participantsCount}
-📊 الحالة: ${bossStatus.status === 'registration' ? '📝 تسجيل' : '⚔️ قتال'}`
-      });
-    }
+        if (!targetId) return sock.sendMessage(from, { text: '❌ أشر لشخص!' });
+        if (!amount || amount <= 0) return sock.sendMessage(from, { text: `❌ حدد المبلغ!\n💡 ${prefix}هدية 100 @شخص` });
+        if ((p.gold || 0) < amount) return sock.sendMessage(from, { text: '❌ لا تملك ذهب كافٍ!' });
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // هدية
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['هدية', 'gift'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        const target = getPlayer(data, targetId, from);
+        if (!target) return sock.sendMessage(from, { text: '❌ الشخص غير مسجل في هذا القروب!' });
 
-      const targetId = quoted?.mentionedJid?.[0];
-      const amount = parseInt(args[0]);
+        p.gold -= amount;
+        target.gold = (target.gold || 0) + amount;
+        saveDatabase();
 
-      if (!targetId) {
-        return sock.sendMessage(from, { text: '❌ أشر لشخص!' });
+        return sock.sendMessage(from, {
+          text: `🎁 أرسلت ${amount} ذهب إلى ${target.name}!`,
+          mentions: [targetId]
+        });
       }
 
-      if (!amount || amount <= 0) {
-        return sock.sendMessage(from, { text: `❌ حدد المبلغ!\n💡 ${prefix}هدية 100 @شخص` });
+      // ═════════════════════════════════════════════════════════════════════════
+      // تبرع للكلان (إذا كان اللاعب في كلان)
+      // ═════════════════════════════════════════════════════════════════════════
+      if (['تبرع', 'donate'].includes(command)) {
+        const p = getPlayer(data, sender, from);
+        if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
+        if (!p.clanId) return sock.sendMessage(from, { text: '❌ أنت لست في كلان!' });
+
+        const amount = parseInt(args[0]);
+        if (!amount || amount <= 0) return sock.sendMessage(from, { text: `❌ حدد المبلغ!\n💡 ${prefix}تبرع 500` });
+        if ((p.gold || 0) < amount) return sock.sendMessage(from, { text: '❌ لا تملك ذهب كافٍ!' });
+
+        const clan = getClan(p.clanId);
+        if (!clan) return sock.sendMessage(from, { text: '❌ الكلان غير موجود!' });
+
+        p.gold -= amount;
+        clan.gold = (clan.gold || 0) + amount;
+        clan.totalDonations = (clan.totalDonations || 0) + amount;
+        saveDatabase();
+
+        return sock.sendMessage(from, { text: `💰 تبرعت بـ ${amount} ذهب لكلان ${clan.name}!` });
       }
 
-      if ((p.gold || 0) < amount) {
-        return sock.sendMessage(from, { text: '❌ لا تملك ذهب كافٍ!' });
-      }
-
-      const target = getPlayer(data, targetId);
-      if (!target) {
-        return sock.sendMessage(from, { text: '❌ الشخص غير مسجل!' });
-      }
-
-      p.gold -= amount;
-      target.gold = (target.gold || 0) + amount;
-
-      saveDatabase();
-
-      return sock.sendMessage(from, {
-        text: `🎁 أرسلت ${amount} ذهب إلى ${target.name}!`,
-        mentions: [targetId]
-      });
-    }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // مخزون
-    // ═════════════════════════════════════════════════════════════════════════
-    if (['مخزون', 'inventory'].includes(command)) {
-      const p = getPlayer(data, sender, from);
-      if (!p) return sock.sendMessage(from, { text: '❌ سجل أولاً!' });
-
-      p.weapons = p.weapons || [];
-      p.armors = p.armors || [];
-      p.inventory = p.inventory || [];
-
-      let msg = `🎒 مخزون ${p.name}:\n\n`;
-
-      if (p.weapons.length > 0) {
-        msg += `⚔️ الأسلحة (${p.weapons.length}):\n`;
-        msg += p.weapons.map((w, i) => `  ${i + 1}. ${w.fullName || w.name} ⚔️${w.atk}`).join('\n');
-        msg += '\n\n';
-      }
-
-      if (p.armors.length > 0) {
-        msg += `🛡️ الدروع (${p.armors.length}):\n`;
-        msg += p.armors.map((a, i) => `  ${i + 1}. ${a.fullName || a.name} 🛡️${a.def}`).join('\n');
-        msg += '\n\n';
-      }
-
-      if (p.inventory.length > 0) {
-        msg += `📦 العناصر:\n`;
-        msg += p.inventory.map(item => `  • ${item}`).join('\n');
-      }
-
-      if (p.weapons.length === 0 && p.armors.length === 0 && p.inventory.length === 0) {
-        msg += '❌ المخزون فارغ!';
-      }
-
-      return sock.sendMessage(from, { text: msg });
+    } catch (err) {
+      console.error(`❌ خطأ في أمر ${command}:`, err);
+      return sock.sendMessage(from, { text: '⚠️ حدث خطأ غير متوقع، حاول مرة أخرى.' });
     }
   }
 };
