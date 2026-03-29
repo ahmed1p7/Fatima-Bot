@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 👑 أوامر المالك - فاطمة بوت v12.0
+// 👑 أوامر المالك - فاطمة بوت v12.0 (محدث)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { saveDatabase, getDatabase, getRpgData, forceMigrateAll, getPlayerSchema, getClanSchema, addFieldToAllPlayers, removeFieldFromAllPlayers } from '../lib/database.mjs';
+import { levelUp } from '../lib/rpg.mjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -13,7 +14,90 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execAsync = promisify(exec);
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔐 تعريف المالك (Owner)
+// ═══════════════════════════════════════════════════════════════════════════════
+// يمكن تعريف المالك بعدة طرق:
+// 1. عبر متغير بيئة في ملف .env: OWNER_NUMBER=393271166550
+// 2. عبر ملف config.json
+// 3. مباشرة هنا (القيمة الافتراضية)
+// 4. عبر قاعدة البيانات (db.settings.owner)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getOwnerNumber() {
+  // أولاً: محاولة قراءة من متغير البيئة
+  if (process.env.OWNER_NUMBER) {
+    let owner = process.env.OWNER_NUMBER;
+    if (!owner.includes('@')) owner += '@s.whatsapp.net';
+    return owner;
+  }
+  
+  // ثانياً: محاولة القراءة من قاعدة البيانات
+  const db = getDatabase();
+  if (db.settings?.owner) return db.settings.owner;
+  
+  // ثالثاً: القيمة الافتراضية (رقم المالك المطلوب)
+  // تم إضافة الرقم +393271166550 كقيمة افتراضية
+  return '393271166550@s.whatsapp.net';
+}
+
+// وظيفة للتحقق من أن المستخدم هو المالك
+export function isOwner(jid) {
+  const owner = getOwnerNumber();
+  if (!owner) return false;
+  // استخراج الرقم فقط للمقارنة (بدون @s.whatsapp.net)
+  const jidNumber = jid.split('@')[0];
+  const ownerNumber = owner.split('@')[0];
+  return jidNumber === ownerNumber;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔧 دوال مساعدة للبحث عن اللاعبين
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * البحث عن لاعب بغض النظر عن مفتاح التخزين (groupId_ userId)
+ * @param {string} userId - معرف المستخدم (مثال: 1234567890@s.whatsapp.net)
+ * @returns {Object|null} - { key, player } أو null
+ */
+function findPlayerByUserId(userId) {
+  const rpgData = getRpgData();
+  if (!rpgData.players) return null;
+  
+  for (const [key, player] of Object.entries(rpgData.players)) {
+    if (key === userId || key.endsWith(`_${userId}`) || player.id === userId) {
+      return { key, player };
+    }
+  }
+  return null;
+}
+
+/**
+ * الحصول على قائمة بجميع اللاعبين (مع أسمائهم ومعرفاتهم)
+ */
+function getAllPlayers() {
+  const rpgData = getRpgData();
+  const players = [];
+  for (const [key, player] of Object.entries(rpgData.players || {})) {
+    players.push({ key, ...player });
+  }
+  return players;
+}
+
+/**
+ * تأخير (مفيد للبث)
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📦 قائمة المحظورين (ذاكرة مؤقتة)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 const banned = new Set();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎮 الأوامر
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export default {
   name: 'Owner',
@@ -36,7 +120,6 @@ export default {
     'وضع_بريفكس', 'setprefix',
     'وضع_اسم', 'setname',
     'حالة', 'status',
-    // أوامر قاعدة البيانات الجديدة
     'ترقية', 'migrate',
     'مخطط', 'schema',
     'إضافة_حقل', 'addfield',
@@ -47,23 +130,29 @@ export default {
   ],
 
   async execute(sock, msg, ctx) {
-    const { from, sender, command, args, text, isOwner, prefix, quoted } = ctx;
-    if (!isOwner) return sock.sendMessage(from, { text: '❌ هذا الأمر للمالك فقط!' });
+    const { from, sender, command, args, text, prefix, quoted } = ctx;
+    
+    // التحقق من الصلاحية
+    if (!isOwner(sender)) {
+      return sock.sendMessage(from, { text: '❌ هذا الأمر للمالك فقط!' });
+    }
 
     const db = getDatabase();
     const rpgData = getRpgData();
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // تحديث البوت
+    // تحديث البوت (git pull)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['تحديث', 'update'].includes(command)) {
       await sock.sendMessage(from, { text: '🔄 جاري التحديث...' });
       saveDatabase();
       try {
+        await execAsync('cd ' + process.cwd() + ' && git stash');
         await execAsync('cd ' + process.cwd() + ' && git pull');
+        await execAsync('cd ' + process.cwd() + ' && git stash pop');
         return sock.sendMessage(from, { text: '✅ تم التحديث! استخدم .إعادة لإعادة التشغيل' });
       } catch (e) {
-        return sock.sendMessage(from, { text: '❌ ' + e.message });
+        return sock.sendMessage(from, { text: '❌ فشل التحديث: ' + e.message });
       }
     }
 
@@ -115,7 +204,7 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // إرسال رسالة للكل
+    // إرسال رسالة للكل (بث) مع تأخير
     // ═══════════════════════════════════════════════════════════════════════════
     if (['إرسال', 'bc', 'broadcast'].includes(command)) {
       if (!text) return sock.sendMessage(from, { text: '❌ اكتب الرسالة!' });
@@ -130,6 +219,7 @@ export default {
         try {
           await sock.sendMessage(id, { text: `📢 إعلان:\n\n${text}` });
           success++;
+          await sleep(1000);
         } catch {}
       }
 
@@ -156,8 +246,6 @@ export default {
       if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
 
       banned.add(user);
-
-      // إضافة لقاعدة البيانات
       if (!db.banned) db.banned = [];
       if (!db.banned.includes(user)) {
         db.banned.push(user);
@@ -212,23 +300,17 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // تصفير بيانات لاعب
+    // تصفير بيانات لاعب (حذف كامل)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['تصفير', 'reset'].includes(command)) {
       let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
+      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
 
-      if (!user) {
-        return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
-      }
+      const found = findPlayerByUserId(user);
+      if (!found) return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
 
-      if (!rpgData.players?.[user]) {
-        return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
-      }
-
-      // حفظ الاسم قبل الحذف
-      const playerName = rpgData.players[user].name || 'غير معروف';
-
-      delete rpgData.players[user];
+      const playerName = found.player.name || 'غير معروف';
+      delete rpgData.players[found.key];
       saveDatabase();
 
       return sock.sendMessage(from, {
@@ -238,7 +320,7 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // إعطاء ذهب/عناصر للاعب
+    // إعطاء ذهب/XP/مستوى للاعب
     // ═══════════════════════════════════════════════════════════════════════════
     if (['إعطاء', 'give'].includes(command)) {
       const type = args[0]?.toLowerCase();
@@ -251,15 +333,10 @@ export default {
         });
       }
 
-      if (!user) {
-        return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
-      }
-
-      if (!rpgData.players?.[user]) {
-        return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
-      }
-
-      const player = rpgData.players[user];
+      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص!' });
+      const found = findPlayerByUserId(user);
+      if (!found) return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
+      const player = found.player;
 
       switch (type) {
         case 'gold':
@@ -267,9 +344,19 @@ export default {
           break;
         case 'xp':
           player.xp = (player.xp || 0) + amount;
+          let leveledUp = false;
+          while (player.xp >= levelUpXP(player.level)) {
+            const result = levelUp(player);
+            if (!result.leveledUp) break;
+            leveledUp = true;
+          }
+          if (leveledUp) await sock.sendMessage(from, { text: '🎉 تم رفع المستوى تلقائياً!' });
           break;
         case 'level':
-          player.level = (player.level || 1) + amount;
+          for (let i = 0; i < amount; i++) {
+            const result = levelUp(player);
+            if (!result.leveledUp) break;
+          }
           break;
         default:
           return sock.sendMessage(from, { text: '❌ نوع غير صحيح! استخدم: gold, xp, level' });
@@ -280,6 +367,10 @@ export default {
         text: `✅ تم إعطاء ${amount} ${type} إلى ${player.name}!`,
         mentions: [user]
       });
+    }
+
+    function levelUpXP(level) {
+      return Math.floor(100 * Math.pow(1.5, level - 1));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -294,11 +385,9 @@ export default {
         return sock.sendMessage(from, { text: `❌ الصيغة: ${prefix}سحب <gold/xp> <الكمية> <@شخص>` });
       }
 
-      if (!rpgData.players?.[user]) {
-        return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
-      }
-
-      const player = rpgData.players[user];
+      const found = findPlayerByUserId(user);
+      if (!found) return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
+      const player = found.player;
 
       switch (type) {
         case 'gold':
@@ -323,15 +412,11 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════════
     if (['معلومات_لاعب', 'playerinfo'].includes(command)) {
       let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
+      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
 
-      if (!user) {
-        return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
-      }
-
-      const player = rpgData.players?.[user];
-      if (!player) {
-        return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
-      }
+      const found = findPlayerByUserId(user);
+      if (!found) return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
+      const player = found.player;
 
       return sock.sendMessage(from, {
         text: `📋 معلومات اللاعب:
@@ -354,23 +439,20 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // قائمة اللاعبين
+    // قائمة اللاعبين (جميع اللاعبين)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['قائمة_اللاعبين', 'players'].includes(command)) {
-      const players = Object.entries(rpgData.players || {})
-        .map(([id, p]) => ({ id, ...p }))
+      const players = getAllPlayers()
         .sort((a, b) => (b.level || 1) - (a.level || 1))
         .slice(0, 20);
 
-      if (players.length === 0) {
-        return sock.sendMessage(from, { text: '❌ لا يوجد لاعبين!' });
-      }
+      if (players.length === 0) return sock.sendMessage(from, { text: '❌ لا يوجد لاعبين!' });
 
       const list = players.map((p, i) =>
         `${i + 1}. ${p.name} (Lv.${p.level})\n   💰 ${(p.gold || 0).toLocaleString()}`
       ).join('\n\n');
 
-      return sock.sendMessage(from, { text: `🎮 قائمة اللاعبين (${Object.keys(rpgData.players || {}).length}):\n\n${list}` });
+      return sock.sendMessage(from, { text: `🎮 قائمة اللاعبين (${getAllPlayers().length}):\n\n${list}` });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -378,16 +460,12 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════════
     if (['حذف_لاعب', 'deleteplayer'].includes(command)) {
       let user = quoted?.mentionedJid?.[0] || (args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
+      if (!user) return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
 
-      if (!user) {
-        return sock.sendMessage(from, { text: '❌ أشر للشخص أو اكتب رقمه!' });
-      }
+      const found = findPlayerByUserId(user);
+      if (!found) return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
 
-      if (!rpgData.players?.[user]) {
-        return sock.sendMessage(from, { text: '❌ اللاعب غير موجود!' });
-      }
-
-      delete rpgData.players[user];
+      delete rpgData.players[found.key];
       saveDatabase();
 
       return sock.sendMessage(from, { text: '✅ تم حذف اللاعب!' });
@@ -398,9 +476,7 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════════
     if (['وضع_بريفكس', 'setprefix'].includes(command)) {
       const newPrefix = args[0];
-      if (!newPrefix) {
-        return sock.sendMessage(from, { text: '❌ اكتب البريفكس الجديد!' });
-      }
+      if (!newPrefix) return sock.sendMessage(from, { text: '❌ اكتب البريفكس الجديد!' });
 
       if (!db.settings) db.settings = {};
       db.settings.prefix = newPrefix;
@@ -414,9 +490,7 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════════
     if (['وضع_اسم', 'setname'].includes(command)) {
       const name = args.join(' ');
-      if (!name) {
-        return sock.sendMessage(from, { text: '❌ اكتب الاسم الجديد!' });
-      }
+      if (!name) return sock.sendMessage(from, { text: '❌ اكتب الاسم الجديد!' });
 
       if (!db.settings) db.settings = {};
       db.settings.botName = name;
@@ -445,20 +519,19 @@ export default {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // ترقية قاعدة البيانات (Migration)
+    // ترقية قاعدة البيانات
     // ═══════════════════════════════════════════════════════════════════════════
     if (['ترقية', 'migrate'].includes(command)) {
       await sock.sendMessage(from, { text: '🔄 جاري ترقية قاعدة البيانات...' });
-      
       try {
         forceMigrateAll();
-        return sock.sendMessage(from, { 
+        return sock.sendMessage(from, {
           text: `✅ تم ترقية قاعدة البيانات بنجاح!
 
 📊 الإحصائيات:
 │ 👥 اللاعبين: ${Object.keys(rpgData.players || {}).length}
 │ 🏰 الكلانات: ${Object.keys(rpgData.clans || {}).length}
-│ 📌 الإصدار: ${rpgData.version}` 
+│ 📌 الإصدار: ${rpgData.version}`
         });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ خطأ في الترقية: ' + e.message });
@@ -476,10 +549,7 @@ export default {
         const fields = Object.entries(schema)
           .map(([k, v]) => `│ ${k}: ${Array.isArray(v) ? '[]' : typeof v}`)
           .join('\n');
-        
-        return sock.sendMessage(from, {
-          text: `🏰 مخطط الكلان:\n\n${fields}`
-        });
+        return sock.sendMessage(from, { text: `🏰 مخطط الكلان:\n\n${fields}` });
       }
       
       const schema = getPlayerSchema();
@@ -512,7 +582,6 @@ export default {
       
       try {
         let parsedValue = defaultValue;
-        // محاولة تحويل القيمة
         if (defaultValue === 'true') parsedValue = true;
         else if (defaultValue === 'false') parsedValue = false;
         else if (!isNaN(defaultValue) && defaultValue !== '') parsedValue = Number(defaultValue);
@@ -520,9 +589,7 @@ export default {
         else if (defaultValue === '{}') parsedValue = {};
         
         addFieldToAllPlayers(fieldPath, parsedValue);
-        return sock.sendMessage(from, { 
-          text: `✅ تم إضافة الحقل \`${fieldPath}\` بقيمة \`${parsedValue}\` لجميع اللاعبين!` 
-        });
+        return sock.sendMessage(from, { text: `✅ تم إضافة الحقل \`${fieldPath}\` بقيمة \`${parsedValue}\` لجميع اللاعبين!` });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
       }
@@ -533,7 +600,6 @@ export default {
     // ═══════════════════════════════════════════════════════════════════════════
     if (['حذف_حقل', 'removefield'].includes(command)) {
       const fieldPath = args[0];
-      
       if (!fieldPath) {
         return sock.sendMessage(from, {
           text: `❌ الصيغة: ${prefix}حذف_حقل <مسار_الحقل>\n\nمثال:\n${prefix}حذف_حقل oldField\n${prefix}حذف_حقل stats.oldStat`
@@ -542,9 +608,7 @@ export default {
       
       try {
         removeFieldFromAllPlayers(fieldPath);
-        return sock.sendMessage(from, { 
-          text: `✅ تم حذف الحقل \`${fieldPath}\` من جميع اللاعبين!` 
-        });
+        return sock.sendMessage(from, { text: `✅ تم حذف الحقل \`${fieldPath}\` من جميع اللاعبين!` });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
       }
@@ -588,22 +652,11 @@ export default {
       const backupName = args[0];
       
       if (!backupName) {
-        // عرض النسخ المتاحة
         const BACKUP_DIR = path.join(__dirname, '..', 'database', 'backups');
+        if (!fs.existsSync(BACKUP_DIR)) return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
         
-        if (!fs.existsSync(BACKUP_DIR)) {
-          return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
-        }
-        
-        const files = fs.readdirSync(BACKUP_DIR)
-          .filter(f => f.endsWith('.json'))
-          .sort()
-          .reverse()
-          .slice(0, 10);
-        
-        if (files.length === 0) {
-          return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
-        }
+        const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 10);
+        if (files.length === 0) return sock.sendMessage(from, { text: '❌ لا توجد نسخ احتياطية!' });
         
         const list = files.map(f => `│ ${f}`).join('\n');
         return sock.sendMessage(from, {
@@ -616,20 +669,17 @@ export default {
         const BACKUP_DIR = path.join(DB_DIR, 'backups');
         const backupFile = path.join(BACKUP_DIR, backupName);
         
-        if (!fs.existsSync(backupFile)) {
-          return sock.sendMessage(from, { text: '❌ الملف غير موجود!' });
-        }
+        if (!fs.existsSync(backupFile)) return sock.sendMessage(from, { text: '❌ الملف غير موجود!' });
         
-        // تحديد نوع الملف
         if (backupName.startsWith('database_')) {
           fs.copyFileSync(backupFile, path.join(DB_DIR, 'database.json'));
         } else if (backupName.startsWith('rpg_')) {
           fs.copyFileSync(backupFile, path.join(DB_DIR, 'rpg.json'));
+        } else {
+          return sock.sendMessage(from, { text: '❌ اسم ملف غير صحيح!' });
         }
         
-        return sock.sendMessage(from, { 
-          text: `✅ تم استعادة ${backupName}!\n\n⚠️ أعد تشغيل البوت لتطبيق التغييرات.\n${prefix}إعادة` 
-        });
+        return sock.sendMessage(from, { text: `✅ تم استعادة ${backupName}!\n\n⚠️ أعد تشغيل البوت لتطبيق التغييرات.\n${prefix}إعادة` });
       } catch (e) {
         return sock.sendMessage(from, { text: '❌ خطأ: ' + e.message });
       }
@@ -652,17 +702,14 @@ export default {
       const playersCount = Object.keys(rpgData.players || {}).length;
       const clansCount = Object.keys(rpgData.clans || {}).length;
       
-      // حساب إحصائيات إضافية
       let totalGold = 0;
       let totalLevel = 0;
       let maxLevel = 0;
-      
       for (const p of Object.values(rpgData.players || {})) {
         totalGold += p.gold || 0;
         totalLevel += p.level || 1;
         maxLevel = Math.max(maxLevel, p.level || 1);
       }
-      
       const avgLevel = playersCount > 0 ? (totalLevel / playersCount).toFixed(1) : 0;
       
       return sock.sendMessage(from, {
