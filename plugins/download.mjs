@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// 📥 أوامر التحميل المحسنة - فاطمة بوت v13.0
+// 📥 أوامر التحميل (يوتيوب + إنستغرام فقط) - فاطمة بوت v13.0
 // APIs المستخدمة: api.bk9.site (أساسي) | aemt.me (احتياطي)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -8,22 +8,22 @@ import fetch from 'node-fetch';
 // دالة مساعدة للتحميل مع fallback بين APIs
 async function downloadWithFallback(primaryUrl, backupUrl, extractFn) {
   try {
-    const res = await fetch(primaryUrl);
+    const res = await fetch(primaryUrl, { timeout: 15000 });
     const data = await res.json();
     const result = extractFn(data);
     if (result) return { success: true, data: result };
   } catch (e) {
-    console.log('Primary API failed, trying backup...');
+    console.log('⚠️ Primary API failed:', e.message);
   }
   
   if (backupUrl) {
     try {
-      const res = await fetch(backupUrl);
+      const res = await fetch(backupUrl, { timeout: 15000 });
       const data = await res.json();
       const result = extractFn(data);
       if (result) return { success: true, data: result };
     } catch (e) {
-      console.log('Backup API also failed');
+      console.log('⚠️ Backup API also failed:', e.message);
     }
   }
   
@@ -33,20 +33,19 @@ async function downloadWithFallback(primaryUrl, backupUrl, extractFn) {
 export default {
   name: 'Downloads',
   commands: [
-    'تشغيل', 'play', 'song',
+    // أوامر يوتيوب صوت
+    'تشغيل', 'play', 'song', 'صوت', 'audio', 'mp3',
+    // أوامر يوتيوب فيديو
     'فيديو', 'video', 'yt',
-    'تيكتوك', 'tiktok', 'tt',
-    'انستا', 'instagram', 'ig',
-    'فيسبوك', 'facebook', 'fb',
-    'تويتر', 'twitter', 'tw',
-    'صوت', 'audio', 'mp3'
+    // أوامر إنستغرام
+    'انستا', 'instagram', 'ig'
   ],
   
   async execute(sock, msg, ctx) {
     const { from, command, args, text, prefix, quoted } = ctx;
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // 🎵 تشغيل أغنية (YouTube Audio)
+    // 🎵 تحميل صوت من يوتيوب (YouTube Audio)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['تشغيل', 'play', 'song', 'صوت', 'audio', 'mp3'].includes(command)) {
       if (!text) {
@@ -58,6 +57,7 @@ export default {
       await sock.sendMessage(from, { text: '🔍 جاري البحث عن الأغنية...' });
       
       try {
+        // 1. البحث عن الفيديو
         const searchUrl = `https://api.bk9.site/api/search/youtube?query=${encodeURIComponent(text)}`;
         const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
@@ -69,16 +69,14 @@ export default {
           video = searchData.data[0];
           videoUrl = `https://www.youtube.com/watch?v=${video.videoId || video.id}`;
         } else {
-          video = { title: text };
+          // إذا لم يجد البحث، نفترض أن النص هو رابط مباشر
           videoUrl = text;
-        }
-        
-        if (!video) {
-          return sock.sendMessage(from, { text: '❌ لم أجد الأغنية!' });
+          video = { title: 'مقطع يوتيوب' };
         }
         
         await sock.sendMessage(from, { text: `🎵 تم العثور: ${video.title}\n⏳ جاري التحميل...` });
         
+        // 2. تحميل الصوت
         const primaryDlUrl = `https://api.bk9.site/api/download/ytmp3?url=${encodeURIComponent(videoUrl)}`;
         const backupDlUrl = `https://aemt.me/download/ytmp3?url=${encodeURIComponent(videoUrl)}`;
         
@@ -86,14 +84,18 @@ export default {
           primaryDlUrl,
           backupDlUrl,
           (data) => {
+            // تنسيق api.bk9.site
             if (data.status && data.data?.mp3) return data.data.mp3;
+            // تنسيق aemt.me
             if (data.result?.url) return data.result.url;
+            // تنسيق بديل
+            if (data.url) return data.url;
             return null;
           }
         );
         
         if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل الأغنية!' });
+          return sock.sendMessage(from, { text: '❌ فشل تحميل الأغنية! حاول لاحقاً.' });
         }
         
         return sock.sendMessage(from, {
@@ -118,7 +120,7 @@ export default {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // 🎬 فيديو يوتيوب
+    // 🎬 فيديو يوتيوب (YouTube Video)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['فيديو', 'video', 'yt'].includes(command)) {
       if (!text) {
@@ -139,12 +141,8 @@ export default {
           video = searchData.data[0];
           videoUrl = `https://www.youtube.com/watch?v=${video.videoId || video.id}`;
         } else {
-          video = { title: text };
           videoUrl = text;
-        }
-        
-        if (!video) {
-          return sock.sendMessage(from, { text: '❌ لم أجد الفيديو!' });
+          video = { title: 'فيديو يوتيوب' };
         }
         
         await sock.sendMessage(from, { text: `🎬 تم العثور: ${video.title}\n⏳ جاري التحميل...` });
@@ -158,12 +156,13 @@ export default {
           (data) => {
             if (data.status && data.data?.mp4) return data.data.mp4;
             if (data.result?.url) return data.result.url;
+            if (data.url) return data.url;
             return null;
           }
         );
         
         if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل الفيديو!' });
+          return sock.sendMessage(from, { text: '❌ فشل تحميل الفيديو! حاول لاحقاً.' });
         }
         
         return sock.sendMessage(from, {
@@ -179,51 +178,16 @@ export default {
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // 🎵 تيكتوك
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['تيكتوك', 'tiktok', 'tt'].includes(command)) {
-      if (!text) {
-        return sock.sendMessage(from, { text: `❌ اكتب رابط تيكتوك!\n💡 ${prefix}تيكتوك https://vm.tiktok.com/xxx` });
-      }
-      
-      await sock.sendMessage(from, { text: '⏳ جاري تحميل تيكتوك...' });
-      
-      try {
-        const primaryUrl = `https://api.bk9.site/api/download/tiktok?url=${encodeURIComponent(text)}`;
-        const backupUrl = `https://aemt.me/download/tiktok?url=${encodeURIComponent(text)}`;
-        
-        const result = await downloadWithFallback(
-          primaryUrl,
-          backupUrl,
-          (data) => {
-            if (data.status && data.data?.play) return data.data.play;
-            if (data.status && data.data?.video?.play) return data.data.video.play;
-            if (data.result?.url) return data.result.url;
-            return null;
-          }
-        );
-        
-        if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل التيكتوك!' });
-        }
-        
-        return sock.sendMessage(from, {
-          video: { url: result.data },
-          caption: `✅ تم تحميل التيكتوك!\n\n> فاطمة بوت 🌙`
-        });
-        
-      } catch (e) {
-        console.error('TikTok error:', e);
-        return sock.sendMessage(from, { text: `❌ خطأ: ${e.message}` });
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 📸 انستغرام
+    // 📸 انستغرام (Instagram)
     // ═══════════════════════════════════════════════════════════════════════════
     if (['انستا', 'instagram', 'ig'].includes(command)) {
       if (!text) {
-        return sock.sendMessage(from, { text: `❌ اكتب رابط انستغرام!\n💡 ${prefix}انستا https://www.instagram.com/xxx` });
+        return sock.sendMessage(from, { text: `❌ اكتب رابط انستغرام!\n💡 ${prefix}انستا https://www.instagram.com/p/xxx` });
+      }
+      
+      // تحقق بسيط من أن النص هو رابط إنستغرام
+      if (!text.includes('instagram.com') && !text.includes('instagr.am')) {
+        return sock.sendMessage(from, { text: '❌ الرابط غير صحيح! يجب أن يكون رابط إنستغرام صالح.' });
       }
       
       await sock.sendMessage(from, { text: '⏳ جاري تحميل من انستغرام...' });
@@ -236,113 +200,42 @@ export default {
           primaryUrl,
           backupUrl,
           (data) => {
-            if (data.status && data.data?.[0]?.url) return data.data[0];
-            if (data.result?.[0]?.url) return data.result[0];
+            // تنسيق api.bk9.site
+            if (data.status && data.data && Array.isArray(data.data)) {
+              return data.data[0]; // أول عنصر
+            }
+            // تنسيق aemt.me
+            if (data.result && Array.isArray(data.result)) {
+              return data.result[0];
+            }
+            // تنسيق بديل (مباشر)
+            if (data.url) return { url: data.url, type: 'image' };
             return null;
           }
         );
         
         if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل من انستغرام!' });
+          return sock.sendMessage(from, { text: '❌ فشل تحميل من انستغرام! تأكد من الرابط وحاول مجدداً.' });
         }
         
         const media = result.data;
+        const mediaUrl = media.url || media;
+        const mediaType = media.type || (mediaUrl.includes('.mp4') ? 'video' : 'image');
         
-        if (media.type === 'video' || media.media_type === 'video') {
+        if (mediaType === 'video') {
           return sock.sendMessage(from, {
-            video: { url: media.url },
+            video: { url: mediaUrl },
             caption: '✅ تم تحميل الفيديو!\n\n> فاطمة بوت 🌙'
           });
         } else {
           return sock.sendMessage(from, {
-            image: { url: media.url },
+            image: { url: mediaUrl },
             caption: '✅ تم تحميل الصورة!\n\n> فاطمة بوت 🌙'
           });
         }
         
       } catch (e) {
         console.error('Instagram error:', e);
-        return sock.sendMessage(from, { text: `❌ خطأ: ${e.message}` });
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 📘 فيسبوك
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['فيسبوك', 'facebook', 'fb'].includes(command)) {
-      if (!text) {
-        return sock.sendMessage(from, { text: `❌ اكتب رابط فيسبوك!\n💡 ${prefix}فيسبوك https://www.facebook.com/xxx` });
-      }
-      
-      await sock.sendMessage(from, { text: '⏳ جاري تحميل من فيسبوك...' });
-      
-      try {
-        const primaryUrl = `https://api.bk9.site/api/download/facebook?url=${encodeURIComponent(text)}`;
-        const backupUrl = `https://aemt.me/download/facebook?url=${encodeURIComponent(text)}`;
-        
-        const result = await downloadWithFallback(
-          primaryUrl,
-          backupUrl,
-          (data) => {
-            if (data.status && data.data?.hd) return data.data.hd;
-            if (data.status && data.data?.sd) return data.data.sd;
-            if (data.status && data.data?.url) return data.data.url;
-            if (data.result?.url) return data.result.url;
-            return null;
-          }
-        );
-        
-        if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل من فيسبوك!' });
-        }
-        
-        return sock.sendMessage(from, {
-          video: { url: result.data },
-          caption: `✅ تم تحميل فيديو فيسبوك!\n\n> فاطمة بوت 🌙`
-        });
-        
-      } catch (e) {
-        console.error('Facebook error:', e);
-        return sock.sendMessage(from, { text: `❌ خطأ: ${e.message}` });
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 🐦 تويتر
-    // ═══════════════════════════════════════════════════════════════════════════
-    if (['تويتر', 'twitter', 'tw'].includes(command)) {
-      if (!text) {
-        return sock.sendMessage(from, { text: `❌ اكتب رابط تويتر!\n💡 ${prefix}تويتر https://twitter.com/xxx` });
-      }
-      
-      await sock.sendMessage(from, { text: '⏳ جاري تحميل من تويتر...' });
-      
-      try {
-        const primaryUrl = `https://api.bk9.site/api/download/twitter?url=${encodeURIComponent(text)}`;
-        const backupUrl = `https://aemt.me/download/twitter?url=${encodeURIComponent(text)}`;
-        
-        const result = await downloadWithFallback(
-          primaryUrl,
-          backupUrl,
-          (data) => {
-            if (data.status && data.data?.video) return data.data.video;
-            if (data.status && data.data?.url) return data.data.url;
-            if (data.result?.url) return data.result.url;
-            return null;
-          }
-        );
-        
-        if (!result.success || !result.data) {
-          return sock.sendMessage(from, { text: '❌ فشل تحميل من تويتر!' });
-        }
-        
-        return sock.sendMessage(from, {
-          video: { url: result.data },
-          caption: `✅ تم تحميل فيديو تويتر!\n\n> فاطمة بوت 🌙`
-        });
-        
-      } catch (e) {
-        console.error('Twitter error:', e);
         return sock.sendMessage(from, { text: `❌ خطأ: ${e.message}` });
       }
     }
