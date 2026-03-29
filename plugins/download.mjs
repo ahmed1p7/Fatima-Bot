@@ -1,19 +1,39 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // 📥 أوامر التحميل المحسنة - فاطمة بوت v13.0
+// APIs المستخدمة: api.bk9.site (أساسي) | aemt.me (احتياطي)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import fetch from 'node-fetch';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-import path from 'path';
 
-const execAsync = promisify(exec);
+// دالة مساعدة للتحميل مع fallback بين APIs
+async function downloadWithFallback(primaryUrl, backupUrl, extractFn) {
+  try {
+    const res = await fetch(primaryUrl);
+    const data = await res.json();
+    const result = extractFn(data);
+    if (result) return { success: true, data: result };
+  } catch (e) {
+    console.log('Primary API failed, trying backup...');
+  }
+  
+  if (backupUrl) {
+    try {
+      const res = await fetch(backupUrl);
+      const data = await res.json();
+      const result = extractFn(data);
+      if (result) return { success: true, data: result };
+    } catch (e) {
+      console.log('Backup API also failed');
+    }
+  }
+  
+  return { success: false, error: 'فشل جميع APIs' };
+}
 
 export default {
   name: 'Downloads',
   commands: [
-    'تشغيل', 'play', ' song',
+    'تشغيل', 'play', 'song',
     'فيديو', 'video', 'yt',
     'تيكتوك', 'tiktok', 'tt',
     'انستا', 'instagram', 'ig',
@@ -38,60 +58,51 @@ export default {
       await sock.sendMessage(from, { text: '🔍 جاري البحث عن الأغنية...' });
       
       try {
-        // البحث عن الفيديو
-        const searchUrl = `https://api.siputzx.my.id/api/d/youtube-search?query=${encodeURIComponent(text)}`;
+        const searchUrl = `https://api.bk9.site/api/search/youtube?query=${encodeURIComponent(text)}`;
         const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
         
-        if (!searchData.status || !searchData.data?.[0]) {
+        let video = null;
+        let videoUrl = '';
+        
+        if (searchData.status && searchData.data?.[0]) {
+          video = searchData.data[0];
+          videoUrl = `https://www.youtube.com/watch?v=${video.videoId || video.id}`;
+        } else {
+          video = { title: text };
+          videoUrl = text;
+        }
+        
+        if (!video) {
           return sock.sendMessage(from, { text: '❌ لم أجد الأغنية!' });
         }
         
-        const video = searchData.data[0];
-        const videoUrl = `https://www.youtube.com/watch?v=${video.videoId}`;
-        
         await sock.sendMessage(from, { text: `🎵 تم العثور: ${video.title}\n⏳ جاري التحميل...` });
         
-        // تحميل الصوت
-        const dlUrl = `https://api.siputzx.my.id/api/d/youtube?url=${encodeURIComponent(videoUrl)}`;
-        const dlRes = await fetch(dlUrl);
-        const dlData = await dlRes.json();
+        const primaryDlUrl = `https://api.bk9.site/api/download/ytmp3?url=${encodeURIComponent(videoUrl)}`;
+        const backupDlUrl = `https://aemt.me/download/ytmp3?url=${encodeURIComponent(videoUrl)}`;
         
-        if (!dlData.status || !dlData.data?.mp3) {
-          // محاولة بـ API بديل
-          const altUrl = `https://api.fabdl.com/spotify/get?url=${encodeURIComponent(videoUrl)}`;
-          try {
-            const altRes = await fetch(altUrl);
-            const altData = await altRes.json();
-            
-            if (altData.result?.url) {
-              return sock.sendMessage(from, {
-                audio: { url: altData.result.url },
-                mimetype: 'audio/mpeg',
-                fileName: `${video.title}.mp3`,
-                contextInfo: {
-                  externalAdReply: {
-                    title: video.title || 'أغنية',
-                    body: 'فاطمة بوت',
-                    thumbnailUrl: video.thumbnail || video.thumbnailUrl,
-                    sourceUrl: videoUrl,
-                    mediaType: 1
-                  }
-                }
-              });
-            }
-          } catch {}
-          
+        const result = await downloadWithFallback(
+          primaryDlUrl,
+          backupDlUrl,
+          (data) => {
+            if (data.status && data.data?.mp3) return data.data.mp3;
+            if (data.result?.url) return data.result.url;
+            return null;
+          }
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل الأغنية!' });
         }
         
         return sock.sendMessage(from, {
-          audio: { url: dlData.data.mp3 },
+          audio: { url: result.data },
           mimetype: 'audio/mpeg',
           fileName: `${video.title}.mp3`,
           contextInfo: {
             externalAdReply: {
-              title: video.title || 'أغنية',
+              title: video.title,
               body: 'فاطمة بوت 🌙',
               thumbnailUrl: video.thumbnail || video.thumbnailUrl,
               sourceUrl: videoUrl,
@@ -117,30 +128,46 @@ export default {
       await sock.sendMessage(from, { text: '🔍 جاري البحث...' });
       
       try {
-        const searchUrl = `https://api.siputzx.my.id/api/d/youtube-search?query=${encodeURIComponent(text)}`;
+        const searchUrl = `https://api.bk9.site/api/search/youtube?query=${encodeURIComponent(text)}`;
         const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
         
-        if (!searchData.status || !searchData.data?.[0]) {
+        let video = null;
+        let videoUrl = '';
+        
+        if (searchData.status && searchData.data?.[0]) {
+          video = searchData.data[0];
+          videoUrl = `https://www.youtube.com/watch?v=${video.videoId || video.id}`;
+        } else {
+          video = { title: text };
+          videoUrl = text;
+        }
+        
+        if (!video) {
           return sock.sendMessage(from, { text: '❌ لم أجد الفيديو!' });
         }
         
-        const video = searchData.data[0];
-        const videoUrl = `https://www.youtube.com/watch?v=${video.videoId}`;
-        
         await sock.sendMessage(from, { text: `🎬 تم العثور: ${video.title}\n⏳ جاري التحميل...` });
         
-        // تحميل الفيديو
-        const dlUrl = `https://api.siputzx.my.id/api/d/youtube?url=${encodeURIComponent(videoUrl)}`;
-        const dlRes = await fetch(dlUrl);
-        const dlData = await dlRes.json();
+        const primaryDlUrl = `https://api.bk9.site/api/download/ytmp4?url=${encodeURIComponent(videoUrl)}`;
+        const backupDlUrl = `https://aemt.me/download/ytmp4?url=${encodeURIComponent(videoUrl)}`;
         
-        if (!dlData.status || !dlData.data?.mp4) {
+        const result = await downloadWithFallback(
+          primaryDlUrl,
+          backupDlUrl,
+          (data) => {
+            if (data.status && data.data?.mp4) return data.data.mp4;
+            if (data.result?.url) return data.result.url;
+            return null;
+          }
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل الفيديو!' });
         }
         
         return sock.sendMessage(from, {
-          video: { url: dlData.data.mp4 },
+          video: { url: result.data },
           caption: `✅ ${video.title}\n\n> فاطمة بوت 🌙`,
           mimetype: 'video/mp4'
         });
@@ -162,34 +189,27 @@ export default {
       await sock.sendMessage(from, { text: '⏳ جاري تحميل تيكتوك...' });
       
       try {
-        const apiUrl = `https://api.siputzx.my.id/api/d/tiktok?url=${encodeURIComponent(text)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+        const primaryUrl = `https://api.bk9.site/api/download/tiktok?url=${encodeURIComponent(text)}`;
+        const backupUrl = `https://aemt.me/download/tiktok?url=${encodeURIComponent(text)}`;
         
-        if (!data.status || !data.data) {
-          // محاولة بـ API بديل
-          const altUrl = `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(text)}`;
-          const altRes = await fetch(altUrl);
-          const altData = await altRes.json();
-          
-          if (altData.video) {
-            return sock.sendMessage(from, {
-              video: { url: altData.video },
-              caption: `✅ تم التحميل!\n\n> فاطمة بوت 🌙`
-            });
+        const result = await downloadWithFallback(
+          primaryUrl,
+          backupUrl,
+          (data) => {
+            if (data.status && data.data?.play) return data.data.play;
+            if (data.status && data.data?.video?.play) return data.data.video.play;
+            if (data.result?.url) return data.result.url;
+            return null;
           }
-          
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل التيكتوك!' });
         }
         
-        const videoUrl = data.data.play || data.data.video?.play;
-        if (!videoUrl) {
-          return sock.sendMessage(from, { text: '❌ لم أجد الفيديو!' });
-        }
-        
         return sock.sendMessage(from, {
-          video: { url: videoUrl },
-          caption: `✅ تم تحميل التيكتوك!\n\n👤 ${data.data.author?.nickname || ''}\n📝 ${data.data.title || ''}\n\n> فاطمة بوت 🌙`
+          video: { url: result.data },
+          caption: `✅ تم تحميل التيكتوك!\n\n> فاطمة بوت 🌙`
         });
         
       } catch (e) {
@@ -209,37 +229,26 @@ export default {
       await sock.sendMessage(from, { text: '⏳ جاري تحميل من انستغرام...' });
       
       try {
-        const apiUrl = `https://api.siputzx.my.id/api/d/instagram?url=${encodeURIComponent(text)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+        const primaryUrl = `https://api.bk9.site/api/download/instagram?url=${encodeURIComponent(text)}`;
+        const backupUrl = `https://aemt.me/download/instagram?url=${encodeURIComponent(text)}`;
         
-        if (!data.status || !data.data?.[0]) {
-          // محاولة بديلة
-          const altUrl = `https://api.fabdl.com/instagram/get?url=${encodeURIComponent(text)}`;
-          const altRes = await fetch(altUrl);
-          const altData = await altRes.json();
-          
-          if (altData.result?.[0]?.url) {
-            const media = altData.result[0];
-            if (media.type === 'video') {
-              return sock.sendMessage(from, {
-                video: { url: media.url },
-                caption: '✅ تم التحميل!\n\n> فاطمة بوت 🌙'
-              });
-            } else {
-              return sock.sendMessage(from, {
-                image: { url: media.url },
-                caption: '✅ تم التحميل!\n\n> فاطمة بوت 🌙'
-              });
-            }
+        const result = await downloadWithFallback(
+          primaryUrl,
+          backupUrl,
+          (data) => {
+            if (data.status && data.data?.[0]?.url) return data.data[0];
+            if (data.result?.[0]?.url) return data.result[0];
+            return null;
           }
-          
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل من انستغرام!' });
         }
         
-        const media = data.data[0];
+        const media = result.data;
         
-        if (media.type === 'video') {
+        if (media.type === 'video' || media.media_type === 'video') {
           return sock.sendMessage(from, {
             video: { url: media.url },
             caption: '✅ تم تحميل الفيديو!\n\n> فاطمة بوت 🌙'
@@ -268,22 +277,27 @@ export default {
       await sock.sendMessage(from, { text: '⏳ جاري تحميل من فيسبوك...' });
       
       try {
-        const apiUrl = `https://api.siputzx.my.id/api/d/facebook?url=${encodeURIComponent(text)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+        const primaryUrl = `https://api.bk9.site/api/download/facebook?url=${encodeURIComponent(text)}`;
+        const backupUrl = `https://aemt.me/download/facebook?url=${encodeURIComponent(text)}`;
         
-        if (!data.status || !data.data) {
+        const result = await downloadWithFallback(
+          primaryUrl,
+          backupUrl,
+          (data) => {
+            if (data.status && data.data?.hd) return data.data.hd;
+            if (data.status && data.data?.sd) return data.data.sd;
+            if (data.status && data.data?.url) return data.data.url;
+            if (data.result?.url) return data.result.url;
+            return null;
+          }
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل من فيسبوك!' });
         }
         
-        const videoUrl = data.data.hd || data.data.sd || data.data.url;
-        
-        if (!videoUrl) {
-          return sock.sendMessage(from, { text: '❌ لم أجد الفيديو!' });
-        }
-        
         return sock.sendMessage(from, {
-          video: { url: videoUrl },
+          video: { url: result.data },
           caption: `✅ تم تحميل فيديو فيسبوك!\n\n> فاطمة بوت 🌙`
         });
         
@@ -304,22 +318,26 @@ export default {
       await sock.sendMessage(from, { text: '⏳ جاري تحميل من تويتر...' });
       
       try {
-        const apiUrl = `https://api.siputzx.my.id/api/d/twitter?url=${encodeURIComponent(text)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+        const primaryUrl = `https://api.bk9.site/api/download/twitter?url=${encodeURIComponent(text)}`;
+        const backupUrl = `https://aemt.me/download/twitter?url=${encodeURIComponent(text)}`;
         
-        if (!data.status || !data.data) {
+        const result = await downloadWithFallback(
+          primaryUrl,
+          backupUrl,
+          (data) => {
+            if (data.status && data.data?.video) return data.data.video;
+            if (data.status && data.data?.url) return data.data.url;
+            if (data.result?.url) return data.result.url;
+            return null;
+          }
+        );
+        
+        if (!result.success || !result.data) {
           return sock.sendMessage(from, { text: '❌ فشل تحميل من تويتر!' });
         }
         
-        const videoUrl = data.data.video || data.data.url;
-        
-        if (!videoUrl) {
-          return sock.sendMessage(from, { text: '❌ لم أجد الفيديو!' });
-        }
-        
         return sock.sendMessage(from, {
-          video: { url: videoUrl },
+          video: { url: result.data },
           caption: `✅ تم تحميل فيديو تويتر!\n\n> فاطمة بوت 🌙`
         });
         
